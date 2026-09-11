@@ -8,6 +8,6 @@
     <ProjectReference Include="../Riji.Infrastructure/Riji.Infrastructure.csproj" />
     <ProjectReference Include="../Riji.Windows/Riji.Windows.csproj" />
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4191.47" />
-    <Content Include="../Riji.Web/dist/**/*"><Link>Web/%(RecursiveDir)%(Filename)%(Extension)</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory><CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory></Content>
+    <Content Include="../../assets/icons/riji.ico"><Link>riji.ico</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content><Content Include="../Riji.Web/dist/**/*"><Link>Web/%(RecursiveDir)%(Filename)%(Extension)</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory><CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory></Content>
   </ItemGroup>
 </Project>

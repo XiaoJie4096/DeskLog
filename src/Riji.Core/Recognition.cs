@@ -19,7 +19,7 @@ public sealed record Category(string Id, string Name, string Meaning, string Col
     }
 }
 
-public sealed record AiConfiguration(string Endpoint, string Model, string ProtectedKey, int InputBudget = 12000)
+public sealed record AiConfiguration(string Endpoint, string Model, string ProtectedKey, int InputBudget = 12000, string? SummaryModel = null)
 {
     public string Identity => Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(Endpoint + "\n" + Model)))[..16];
     public static Uri ValidateEndpoint(string endpoint)

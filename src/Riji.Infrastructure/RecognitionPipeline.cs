@@ -57,13 +57,13 @@ public sealed class RecognitionPipeline : IDisposable
     }
 
     // A real image and validated response are required before replacing the active configuration.
-    public async Task<RecognitionResult> TestConfiguration(string endpoint, string model, string key, int budget = 12000)
+    public async Task<RecognitionResult> TestConfiguration(string endpoint, string model, string key, int budget = 12000, string? summaryModel = null)
     {
         if (busy || closing) throw new InvalidOperationException("识别任务正在执行或日迹正在退出，请稍后测试配置。");
         if (!allowed()) throw new InvalidOperationException("请先恢复允许识屏的记录状态，再测试截图识别。");
         AiConfiguration.ValidateEndpoint(endpoint);
         if (string.IsNullOrWhiteSpace(key) || string.IsNullOrWhiteSpace(model) || model.Length > 200 || budget is < 4000 or > 100000) throw new ArgumentException("请补全 Key、模型和有效输入预算。");
-        var candidate = new AiConfiguration(endpoint.Trim(), model.Trim(), protect(key), budget);
+        var candidate = new AiConfiguration(endpoint.Trim(), model.Trim(), protect(key), budget, string.IsNullOrWhiteSpace(summaryModel) ? null : summaryModel.Trim());
         store.SaveValue("ai-candidate", candidate);
         busy = true; var image = Path.Combine(images, "test-" + Guid.NewGuid().ToString("N") + ".png");
         try

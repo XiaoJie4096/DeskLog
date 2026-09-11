@@ -8,9 +8,8 @@ import { groupSamplesByHour, sampleGaps } from './record-gaps';
 export function RecognitionSettings({ state, section }: { state: Snapshot; section: 'capture' | 'categories' }) {
   const current = state.recognition;
   const [endpoint, setEndpoint] = useState(current.endpoint ?? '');
-  const [model, setModel] = useState(current.model ?? '');
+  const [model, setModel] = useState(current.model ?? ''); const [summaryModel, setSummaryModel] = useState(current.summaryModel ?? current.model ?? '');
   const [key, setKey] = useState('');
-  const [consent, setConsent] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [categories, setCategories] = useState<Category[]>(current.categories);
@@ -48,13 +47,13 @@ export function RecognitionSettings({ state, section }: { state: Snapshot; secti
         <div className="summary-actions"><button className="primary" disabled={busy || !prompt?.trim()}>保存提示词</button><button type="button" disabled={busy} onClick={() => setPrompt(current.defaultPrompt)}>恢复默认</button></div>
         <small>恢复默认后点击“保存提示词”生效。</small>
       </form>
-      <form className="ai-form" onSubmit={event => { event.preventDefault(); const submittedKey = key; setKey(''); void run('testAi', { endpoint, model, key: submittedKey, consent }, '真实图片验证成功，配置已启用。截图开关保持原设置。'); }}>
+      <form className="ai-form" onSubmit={event => { event.preventDefault(); const submittedKey = key; setKey(''); void run('testAi', { endpoint, model, summaryModel, key: submittedKey }, '真实图片验证成功，配置已启用。截图开关保持原设置。'); }}>
         <h3>AI 服务配置</h3><p>填写支持图片的 Chat Completions 接口。验证失败时保留旧有效配置。</p>
-        <label>接口地址<input type="url" required value={endpoint} onChange={e => { setEndpoint(e.target.value); setConsent(false); }} placeholder="https://服务地址/v1" disabled={busy} /></label>
-        <label>模型名称<input required maxLength={200} value={model} onChange={e => setModel(e.target.value)} disabled={busy} /></label>
+        <label>接口地址<input type="url" required value={endpoint} onChange={e => { setEndpoint(e.target.value); }} placeholder="https://服务地址/v1" disabled={busy} /></label>
+        <label>识图模型<input required maxLength={200} value={model} onChange={e => setModel(e.target.value)} disabled={busy} /></label>
         <label>API Key<input type="password" autoComplete="off" required value={key} onChange={e => setKey(e.target.value)} disabled={busy} /><small>仅在本机使用当前 Windows 账户加密保存，不回传到界面。</small></label>
-        <label className="consent"><input type="checkbox" checked={consent} onChange={e => setConsent(e.target.checked)} disabled={busy} /><span>我确认发送当前完整桌面截图至上述服务进行验证。请先收起不希望发送的内容。</span></label>
-        <button className="primary" disabled={busy || current.busy || !consent}>{busy ? '正在验证…' : '发送真实截图并验证配置'}</button>
+
+        <button className="primary" disabled={busy || current.busy}>{busy ? '正在验证…' : '发送真实截图并验证配置'}</button>
       </form>
     </section>}
     {section === 'categories' && <section className="panel history settings"><h2>活动分类</h2><p>按活动目的分类。修改、停用或删除只影响新采样，历史记录保留当时的分类快照。编辑后点击“保存分类”生效。</p>
@@ -126,7 +125,7 @@ export function RecognitionTimeline({ state }: { state: Snapshot }) {
         {latest && (latest.state === 'Failed' || latest.state === 'Cancelled') && <p role="alert">{latest.automatic ? '自动摘要' : '时段摘要'}{latest.state === 'Cancelled' ? '已取消' : '生成失败'}：{latest.error}{saved ? '。仍显示上次成功生成的摘要。' : ''}</p>}
         {!state.recognition.configured && <small>请先在设置中验证 AI 服务。</small>}
         <div className="hour-categories">{Array.from(group.records.reduce((map, record) => { const key = record.category.name; map.set(key, (map.get(key) ?? 0) + record.seconds); return map; }, new Map<string, number>())).map(([name, seconds]) => <span key={name}>{name} · {Math.round(seconds / 60)} 分钟</span>)}</div>
-        <details><summary>展开 {group.records.length} 条原始记录</summary><ol className="recognition-timeline">{group.records.map(record => <li key={record.id}><time>{new Date(record.utc).toLocaleTimeString('zh-CN')}</time><div>{gaps.has(record.id) && <p className="sample-gap">记录缺口：{new Date(gaps.get(record.id)!.start).toLocaleTimeString('zh-CN')} 至 {new Date(record.utc).toLocaleTimeString('zh-CN')}，两次采样相隔 {Math.round(gaps.get(record.id)!.elapsedSeconds / 60)} 分钟。之间未保存其他成功采样。</p>}<span className="category-label" style={{ borderColor: record.category.color }}>{record.category.name}</span><p>{record.description}</p><small>{record.seconds / 60} 分钟采样</small></div></li>)}</ol></details>
+        <details><summary>展开 {group.records.length} 条原始记录</summary><ol className="recognition-timeline">{[...group.records].reverse().map(record => <li key={record.id}><time>{new Date(record.utc).toLocaleTimeString('zh-CN')}</time><div>{gaps.has(record.id) && <p className="sample-gap">记录缺口：{new Date(gaps.get(record.id)!.start).toLocaleTimeString('zh-CN')} 至 {new Date(record.utc).toLocaleTimeString('zh-CN')}，两次采样相隔 {Math.round(gaps.get(record.id)!.elapsedSeconds / 60)} 分钟。之间未保存其他成功采样。</p>}<span className="category-label" style={{ borderColor: record.category.color }}>{record.category.name}</span><p>{record.description}</p><small>{record.seconds / 60} 分钟采样</small></div></li>)}</ol></details>
       </section>;
     }) : <div className="empty">这段时间没有成功识别记录。<small>空白不代表没有活动，日迹不会补写未知内容。</small></div>}
   </section>;

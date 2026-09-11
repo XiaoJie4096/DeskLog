@@ -40,7 +40,7 @@ public sealed class SummaryService
         if (string.IsNullOrWhiteSpace(prompt) || prompt.Length > 10000) throw new ArgumentException("请填写不超过 10000 字的提示词。");
         var sources = store.Records(range.Start, range.End).ToArray();
         if (sources.Length == 0) throw new ArgumentException("所选范围没有成功识别记录，未调用 AI。");
-        var (config, key) = configuration(); var now = DateTimeOffset.UtcNow;
+        var (config, key) = configuration(); config = config with { Model = config.SummaryModel ?? config.Model }; var now = DateTimeOffset.UtcNow;
         var summary = new SummaryDocument(Guid.NewGuid().ToString("N"), range, now, now, prompt, sources, Snapshot(config), Hourly: hourly, Automatic: automatic, PromptVersion: hourly ? 1 : 0);
         store.SaveSummary(summary);
         await Run(summary, config, key); return summary.Id;

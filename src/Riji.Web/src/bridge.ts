@@ -21,7 +21,7 @@ export type Snapshot = {
   hourlySummaryError?: string | null; summaryBusy: boolean; summaryForm: SummaryForm | null; summaryPresets: PromptPreset[]; summaries: SummaryHeader[];
   maintenance: boolean; dataStatus: string | null; diagnosticLogFailed: boolean;
   recognition: { settings: CaptureSettings; defaultPrompt: string; categories: Category[]; busy: boolean; paused: boolean; error: string | null;
-    configured: boolean; endpoint: string | null; model: string | null; latestSample: string | null; jobs: { status: string; count: number }[];
+    configured: boolean; endpoint: string | null; model: string | null; summaryModel: string | null; latestSample: string | null; jobs: { status: string; count: number }[];
     records: { id: string; utc: string; seconds: number; description: string; category: Category; confidence: number }[] };
   days: { day: string; seconds: number; recordCount: number; sampleSeconds: number }[]; profile: string; dataPath: string; savedAt: string;
 };

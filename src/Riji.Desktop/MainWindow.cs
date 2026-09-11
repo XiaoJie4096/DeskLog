@@ -90,7 +90,7 @@ public sealed class MainWindow : Window
         tracker.Observe(Capture());
         timer = new(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(250) };
         timer.Tick += (_, _) => Tick();
-        tray = new() { Icon = System.Drawing.SystemIcons.Application, Text = "日迹 · 正在记录", Visible = true };
+        tray = new() { Icon = new System.Drawing.Icon(Path.Combine(AppContext.BaseDirectory, "riji.ico")), Text = "日迹 · 正在记录", Visible = true };
         var menu = new System.Windows.Forms.ContextMenuStrip();
         menu.Items.Add("打开日迹", null, (_, _) => Dispatcher.Invoke(() => { Show(); WindowState = WindowState.Normal; Activate(); }));
         menu.Items.Add("立即恢复", null, (_, _) => Dispatcher.Invoke(() => ChangeMode(RecordingMode.Default, null)));
@@ -237,8 +237,7 @@ public sealed class MainWindow : Window
                 case "retryRecognition": recognition.RetryFailed(); Push(); break;
                 case "recognitionJobs": value = store.UnfinishedJobs(root.GetProperty("offset").GetInt32()); break;
                 case "testAi":
-                    if (!root.TryGetProperty("consent", out var consent) || consent.ValueKind != JsonValueKind.True) throw new ArgumentException("请确认将真实桌面截图发送至所填服务。" );
-                    await recognition.TestConfiguration(root.GetProperty("endpoint").GetString()!, root.GetProperty("model").GetString()!, root.GetProperty("key").GetString()!);
+                    await recognition.TestConfiguration(root.GetProperty("endpoint").GetString()!, root.GetProperty("model").GetString()!, root.GetProperty("key").GetString()!, 12000, root.TryGetProperty("summaryModel", out var sm) ? sm.GetString() : null);
                     Push(); break;
                 case "summaryForm":
                     var form = root.GetProperty("form").Deserialize<SummaryForm>(json) ?? throw new ArgumentException("总结草稿无效。");
@@ -295,7 +294,7 @@ public sealed class MainWindow : Window
                 health = storageError ?? (observer.HooksAvailable ? tracker.Health : "输入或前台事件钩子不可用，请重启检查权限"),
                 apps = store.Apps(selectedDay), websites = store.Websites(selectedDay), browserConnections = browserSessions.Connections(observer.Capture().MonotonicSeconds), browserError = browser?.Error,
                 recognition = new { settings = recognition.Settings, defaultPrompt = RecognitionPrompts.Default, categories = recognition.Categories, busy = recognition.Busy, paused = recognition.Paused,
-                    error = recognition.Error, configured = recognition.Configuration is not null, endpoint = recognition.Configuration?.Endpoint, model = recognition.Configuration?.Model,
+                    error = recognition.Error, configured = recognition.Configuration is not null, endpoint = recognition.Configuration?.Endpoint, model = recognition.Configuration?.Model, summaryModel = recognition.Configuration?.SummaryModel ?? recognition.Configuration?.Model,
                     jobs = store.JobCounts(), latestSample = store.LatestRecognizedSample(), records = store.Records(selectedDay) },
                 hourlySummaryError = hourlySummaries.Error, summaryBusy = summaries.Busy, summaryForm = store.Read<SummaryForm>("summary-form"),
                 summaryPresets = store.Read<PromptPreset[]>("summary-presets") ?? PromptPreset.Defaults,
