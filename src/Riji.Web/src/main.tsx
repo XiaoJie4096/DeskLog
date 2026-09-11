@@ -7,6 +7,7 @@ import { RecognitionSettings, RecognitionTimeline } from './Recognition';
 import { Summaries } from './Summaries';
 import { WebsiteRules } from './WebsiteRules';
 import { DesignIcon } from './DesignIcon';
+import { ModeHelp } from './ModeHelp';
 import './design-restoration.css';
 
 const pages = [['home', '今天', '◷'], ['review', '回顾', '▤'], ['summaries', 'AI 总结', '✧'], ['statistics', '应用统计', '▥'], ['settings', '设置', '⚙']] as const;
@@ -38,6 +39,7 @@ function App() {
   useEffect(() => { void run('snapshot', { day }); }, [day]);
   useEffect(() => { const follow = state?.settings.followSystemTheme; const apply = () => { document.documentElement.dataset.theme = follow ? (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark') : (state?.settings.theme ?? 'dark'); }; apply(); if (!follow) return; const media = matchMedia('(prefers-color-scheme: light)'); media.addEventListener('change', apply); return () => media.removeEventListener('change', apply); }, [state?.settings.theme, state?.settings.followSystemTheme]);
   const configure = (patch: Partial<Settings>) => state && run('settings', { settings: { ...state.settings, ...patch } });
+  const quickMode = (value: Mode) => { if (!state || busy) return; if (value === 'Locked' || value === 'NoScreen') { setMode(value); setDialog(true); } else void run('mode', { mode: value, minutes: 0 }); };
   const heading = (title: string, subtitle: string, eyebrow: string) => <header className="heading"><div><div className="eyebrow">{eyebrow}</div><h1>{title}</h1><p>{subtitle}</p></div><time>{state?.today ?? localDay()}</time></header>;
   const shiftDay = (offset: number) => { const date = new Date(day + 'T12:00:00'); date.setDate(date.getDate() + offset); setDay(date.toLocaleDateString('sv-SE')); };
   const datePicker = <div className="date-picker"><button aria-label="前一天" onClick={() => shiftDay(-1)}>←</button><input aria-label="查看日期" type="date" value={day} max={state?.today ?? localDay()} onChange={e => e.target.value && setDay(e.target.value)} /><button aria-label="后一天" disabled={day >= (state?.today ?? localDay())} onClick={() => shiftDay(1)}>→</button><button onClick={() => setDay(state?.today ?? localDay())}>回到今天</button><span>{new Date(day + 'T12:00:00').toLocaleDateString('zh-CN', { month: 'long', day: 'numeric', weekday: 'long' })}</span></div>;
@@ -48,7 +50,7 @@ function App() {
       {state && state.day !== day && ['home', 'review', 'statistics'].includes(page) && <p role="status">正在读取所选日期…</p>}
       {!state && <div className="notice">正在连接本地记录服务。只有连接桌面后台后才会显示真实统计。</div>}
       {page === 'home' && <>{heading('留一盏灯，回看今天。', '那些投入过的时间，都有迹可循。', 'A QUIET RECORD')}
-        <section className="state-strip"><span className={`dot ${state?.recording ? 'on' : ''}`} /><div><strong>{state ? modes[state.mode.mode] : '未连接'} · {state?.timingStatus ?? '等待后台状态'}</strong><small>{state?.mode.until ? `持续至 ${new Date(state.mode.until).toLocaleTimeString('zh-CN')}` : '按有效前台区间记录，离开和系统锁屏时暂停'}</small></div><button disabled={!state} onClick={() => { setMode(state!.mode.mode); setDialog(true); }}>切换状态 ↗</button>{state && state.mode.mode !== 'Default' && <button disabled={busy} onClick={() => void run('mode', { mode: 'Default', minutes: 0 })}>立即恢复</button>}</section>
+        <section className="state-strip"><div className="state-info"><span className={`dot ${state?.recording ? 'on' : ''}`} /><strong>{state ? modes[state.mode.mode] : '未连接'}</strong><small>{state?.mode.until ? `持续至 ${new Date(state.mode.until).toLocaleTimeString('zh-CN')}` : state?.timingStatus ?? '等待后台状态'}</small></div><div className="mode-quick" role="group" aria-label="记录状态">{(Object.keys(modes) as Mode[]).map(value => <button key={value} disabled={!state || busy} aria-pressed={state?.mode.mode === value} onClick={() => quickMode(value)}>{modes[value]}</button>)}</div><ModeHelp /></section>
         {state && state.day === state.today && <TodayOverview state={state} review={() => setPage('review')} />}
         <section className="health-compact"><button aria-expanded={healthOpen} onClick={() => setHealthOpen(!healthOpen)}>◉　记录状态 · {state?.recognition.busy ? '正在识别' : '运行详情'}　{healthOpen ? '收起' : '查看详情'}</button>{healthOpen && <p>{state?.health ?? '等待连接'}<small>应用计时与截图识别独立。截图开关及失败任务可在设置中管理。</small></p>}</section></>}
       {page === 'statistics' && <>{heading('时间，在应用之间流动。', '看清应用与常用网站分别用了多久。', 'APPLICATION USAGE')}{/* Keep the connection status beside the date controls. */}<div className="statistics-date">{datePicker}<button onClick={() => { setSettingsTab('browser'); setPage('settings'); }}>{state?.browserConnections ? '浏览器插件已连接' : '浏览器插件未连接'} ↗</button></div>{state && state.day === day && <ApplicationStatistics state={state} />}</>}
@@ -62,7 +64,20 @@ function App() {
       {page === 'settings' && settingsTab === 'data' && <section className="panel history settings"><h2>数据与备份</h2><p>备份包含记录、分类、预设、总结、对话和仍保留的关联截图，不包含 API Key。请妥善保存。</p><p className="notice">维护会暂时暂停采集并取消正在进行的 AI 任务，已完成的数据保留。导入采用完整替换，原数据先自动备份；导入或清空后自动记录与截图保持关闭。</p><div className="summary-actions"><button disabled={busy || !state || state.maintenance} onClick={() => void run('exportData')}>导出备份</button><button disabled={busy || !state || state.maintenance} onClick={() => void run('importData')}>导入并替换</button><button disabled={busy || !state || state.maintenance} onClick={() => void run('clearData')}>清空记录</button></div>{state?.dataStatus && <p role="status" className="path">{state.dataStatus}</p>}{state?.maintenance && <p role="status">数据维护中，请等待完成。</p>}</section>}
       {page === 'settings' && settingsTab === 'browser' && <section className="panel history settings"><h2>浏览器与隐私</h2><p>{state?.browserConnections ? `已连接 ${state.browserConnections} 个浏览器会话` : '尚未连接浏览器扩展'}</p><label className="setting"><span>记录网页标题<small>开启后将当前标签页标题保存在日迹本地数据库，可在应用统计详情查看；启用截图识别时，也会将采样时的标题作为辅助信息发送给 AI。关闭只影响后续采样，历史标题保留。</small></span><input type="checkbox" disabled={!state || busy} checked={state?.settings.websiteTitles ?? false} onChange={e => configure({ websiteTitles: e.target.checked })} /></label><p className="notice">安装日迹扩展后自动连接，无需配对码。使用开发版时，请在扩展选项中选择“开发版”；正式版默认自动连接。</p>{state?.browserError && <p role="alert">{state.browserError}</p>}</section>}
     </main>
-    {dialog && <div className="overlay" onClick={e => { if (e.target === e.currentTarget) setDialog(false); }}><section className="modal" role="dialog" aria-modal="true" aria-labelledby="mode-title"><div className="section-head"><h2 id="mode-title">现在，怎样记录？</h2><button onClick={() => setDialog(false)} aria-label="关闭">×</button></div><p>选择适合此刻的状态。</p><div className="mode-grid">{(Object.keys(modes) as Mode[]).map(value => <button key={value} aria-pressed={mode === value} onClick={() => setMode(value)}>{modes[value]}<small>{{ Default: '按设置记录，空闲时离开', Away: '暂停记录，30 秒恢复冷却', Locked: '忽略空闲，持续记录', NoScreen: '应用计时继续，禁止识屏' }[value]}</small></button>)}</div>{(mode === 'Locked' || mode === 'NoScreen') && <label className="duration-field">持续时间（分钟）<input autoFocus type="number" min="1" max="1440" value={minutes} onChange={e => setMinutes(e.target.value)} /><div className="presets">{[5, 15, 30, 60, 120].map(n => <button key={n} onClick={() => setMinutes(String(n))}>{n} 分钟</button>)}</div></label>}<p className="notice">“锁定”不是 Windows 锁屏。系统锁屏与休眠始终暂停计时。</p><div className="modal-footer"><button onClick={() => setDialog(false)}>取消</button><button className="primary" disabled={busy || ((mode === 'Locked' || mode === 'NoScreen') && (!Number.isInteger(Number(minutes)) || Number(minutes) < 1 || Number(minutes) > 1440))} onClick={async () => { if (await run('mode', { mode, minutes: Number(minutes) })) setDialog(false); }}>确认切换</button></div></section></div>}
+    {dialog && <div className="overlay" onClick={e => { if (e.target === e.currentTarget && !busy) setDialog(false); }}>
+      <section className="modal" role="dialog" aria-modal="true" aria-labelledby="mode-title">
+        <div className="section-head"><h2 id="mode-title">{modes[mode]}</h2><button disabled={busy} onClick={() => setDialog(false)} aria-label="关闭">×</button></div>
+        <p>{mode === 'Locked' ? '锁定持续记录，不自动切到离开状态。用于看视频等不操作的场景。' : '停止截图和识别，继续应用计时。用于隐私或不值得浪费 token 的事。'}</p>
+        <label className="duration-field">持续时间（分钟）
+          <input autoFocus disabled={busy} type="number" min="1" max="1440" value={minutes} onChange={e => setMinutes(e.target.value)} />
+          <div className="presets">{[5, 15, 30, 60, 120].map(n => <button disabled={busy} key={n} onClick={() => setMinutes(String(n))}>{n} 分钟</button>)}</div>
+        </label>
+        <p className="notice">到期后恢复默认状态。</p>
+        <div className="modal-footer"><button disabled={busy} onClick={() => setDialog(false)}>取消</button>
+          <button className="primary" disabled={busy || !Number.isInteger(Number(minutes)) || Number(minutes) < 1 || Number(minutes) > 1440} onClick={async () => { if (await run('mode', { mode, minutes: Number(minutes) })) setDialog(false); }}>开启{modes[mode]}</button>
+        </div>
+      </section>
+    </div>}
   </div>;
 }
 
