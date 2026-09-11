@@ -1,0 +1,71 @@
+using System.Net.Http.Headers;
+using System.Text;
+using System.Text.Json;
+using Riji.Core;
+
+namespace Riji.Infrastructure;
+
+// Use a provider-configurable Chat Completions wire format, without logging request bodies or credentials.
+public sealed class HttpAiClient(HttpClient client)
+{
+    public async Task<string> Text(AiConfiguration configuration, string key, string prompt, CancellationToken cancellation)
+        => await Send(configuration, key, new object[] { new { role = "user", content = prompt } }, cancellation);
+
+    public async Task<RecognitionResult> Recognize(AiConfiguration configuration, string key, byte[] png, Category[] categories, CancellationToken cancellation, string? savedPrompt = null)
+    {
+        var prompt = "描述截图中可观察到的活动，按活动目的分类，不推断任务完成。只返回 JSON：{\"description\":\"非空描述\",\"categoryId\":\"分类ID\",\"confidence\":0到1}。分类：" + JsonSerializer.Serialize(categories.Where(x => x.Enabled));
+        var response = await Send(configuration, key, new object[] { new { role = "user", content = new object[] {
+            new { type = "text", text = savedPrompt ?? prompt }, new { type = "image_url", image_url = new { url = "data:image/png;base64," + Convert.ToBase64String(png) } } } } }, cancellation);
+        var clean = response.Trim();
+        if (clean.StartsWith("```")) { var firstLine = clean.IndexOf('\n'); if (firstLine >= 0 && clean.EndsWith("```")) clean = clean[(firstLine + 1)..^3].Trim(); }
+        try
+        {
+            using var parsed = JsonDocument.Parse(clean);
+            if (!parsed.RootElement.TryGetProperty("confidence", out var confidence) || confidence.ValueKind != JsonValueKind.Number) throw new JsonException();
+            RecognitionResult result;
+            if (savedPrompt is not null)
+            {
+                if (!parsed.RootElement.TryGetProperty("categoryName", out var categoryName) || categoryName.ValueKind != JsonValueKind.String
+                    || !parsed.RootElement.TryGetProperty("description", out var description) || description.ValueKind != JsonValueKind.String) throw new JsonException();
+                var selected = categories.SingleOrDefault(c => c.Enabled && c.Name == categoryName.GetString());
+                if (selected is null) throw new AiFailure("识别服务返回了本次分类列表之外的名称。", true);
+                result = new(description.GetString()!, selected.Id, confidence.GetDouble());
+            }
+            else result = JsonSerializer.Deserialize<RecognitionResult>(clean, new JsonSerializerOptions(JsonSerializerDefaults.Web)) ?? throw new JsonException();
+            RecognitionValidation.Validate(result, categories); return result;
+        }
+        catch (JsonException) { throw new AiFailure("识别服务返回了无法解析的结构。", true); }
+    }
+
+    private async Task<string> Send(AiConfiguration configuration, string key, object[] messages, CancellationToken cancellation)
+    {
+        AiConfiguration.ValidateEndpoint(configuration.Endpoint);
+        if (string.IsNullOrWhiteSpace(configuration.Model) || configuration.Model.Length > 200 || string.IsNullOrWhiteSpace(key)) throw new AiFailure("请补全模型名称和 API Key。", authorization: true);
+        var endpoint = configuration.Endpoint.TrimEnd('/');
+        if (!endpoint.EndsWith("/chat/completions", StringComparison.Ordinal)) endpoint += "/chat/completions";
+        using var request = new HttpRequestMessage(HttpMethod.Post, endpoint);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", key);
+        request.Content = new StringContent(JsonSerializer.Serialize(new { model = configuration.Model, messages, stream = false }), Encoding.UTF8, "application/json");
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellation); timeout.CancelAfter(TimeSpan.FromSeconds(90));
+        try
+        {
+            using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
+            var status = (int)response.StatusCode;
+            if (status is 401 or 403) throw new AiFailure("服务拒绝授权，请检查 API Key 和模型权限。", authorization: true);
+            if (!response.IsSuccessStatusCode) throw new AiFailure($"AI 服务返回 HTTP {status}。", status is 408 or 429 || status >= 500);
+            await using var stream = await response.Content.ReadAsStreamAsync(timeout.Token);
+            using var buffer = new MemoryStream(); var chunk = new byte[8192]; int read;
+            while ((read = await stream.ReadAsync(chunk, timeout.Token)) > 0)
+            { if (buffer.Length + read > 2_000_000) throw new AiFailure("AI 响应超过大小限制。"); buffer.Write(chunk, 0, read); }
+            using var doc = JsonDocument.Parse(buffer.ToArray());
+            var choice = doc.RootElement.GetProperty("choices")[0];
+            if (choice.GetProperty("finish_reason").GetString() != "stop") throw new AiFailure("AI 返回了未完成或被拒绝的结果，未作为成功保存。");
+            var content = choice.GetProperty("message").GetProperty("content").GetString();
+            if (string.IsNullOrWhiteSpace(content)) throw new AiFailure("AI 返回空内容。", true);
+            return content;
+        }
+        catch (OperationCanceledException) when (!cancellation.IsCancellationRequested) { throw new AiFailure("AI 请求超时。", true); }
+        catch (HttpRequestException) { throw new AiFailure("无法连接 AI 服务。", true); }
+        catch (Exception e) when (e is JsonException or KeyNotFoundException or InvalidOperationException or IndexOutOfRangeException) { throw new AiFailure("AI 服务返回了无效响应。", true); }
+    }
+}

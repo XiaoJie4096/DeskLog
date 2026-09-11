@@ -1,0 +1,17 @@
+{
+  "manifest_version": 3,
+  "name": "日迹 · 网页时长",
+  "version": "0.1.0",
+  "description": "将匹配规则的前台网站记录为独立应用，网页标题按日迹设置采集。",
+  "permissions": ["tabs", "storage", "alarms"],
+  "host_permissions": ["http://127.0.0.1:4177/*", "http://127.0.0.1:4178/*"],
+  "background": { "scripts": ["worker.js"] },
+  "options_ui": { "page": "options.html", "open_in_tab": true },
+  "action": { "default_title": "日迹网页统计设置" },
+  "incognito": "not_allowed",
+  "browser_specific_settings": {
+    "gecko": { "id": "riji-browser@riji.local", "strict_min_version": "128.0",
+      "data_collection_permissions": { "required": ["browsingActivity"] }
+    }
+  }
+}

@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Riji.Core/Riji.Core.csproj" />
+    <Project Path="src/Riji.Infrastructure/Riji.Infrastructure.csproj" />
+    <Project Path="src/Riji.Windows/Riji.Windows.csproj" />
+    <Project Path="src/Riji.Desktop/Riji.Desktop.csproj" />
+
+
+  </Folder>
+  <Folder Name="/tests/"><Project Path="tests/Riji.Tests/Riji.Tests.csproj" /></Folder>
+</Solution>

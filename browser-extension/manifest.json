@@ -1,0 +1,13 @@
+{
+  "manifest_version": 3,
+  "name": "日迹 · 网页时长",
+  "version": "0.1.0",
+  "description": "将匹配规则的前台网站记录为独立应用，网页标题按日迹设置采集。",
+  "permissions": ["tabs", "storage", "alarms"],
+  "host_permissions": ["http://127.0.0.1:4177/*", "http://127.0.0.1:4178/*"],
+  "background": { "service_worker": "worker.js" },
+  "options_page": "options.html",
+  "action": { "default_title": "日迹网页统计设置" },
+  "incognito": "not_allowed",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAsjeJUAD1d7tWXOE02XzVhuTvrkonfK1cnGVAKMyjUyTLbk9Uva9tZ7Adtv9DrDD3E5C3JBIna4sg/8EN8scl2jtg17FP6ynS6AsDKT/ZTiqwsmfE6eeUsB1BNKKoCbPXIdo+JteL+pHIpoapafUNMqP4cXqEPv+/+ge66Im5TjUtNouOecXvWiCzmZpk7sR7IgkJHp+021fQxMf3zI714y6VPrTi+IwTEt+r/B6KqrHLuYwniyl2mRPsjxboTzljYUt3OyyS7lcmQWMG/K26X1qRU6K/RPWLPeSzU8BbzYNq82pp1oWgRa8CGmgjbA+eIS9TOPt7q1r2sfXcVGH28QIDAQAB"
+}

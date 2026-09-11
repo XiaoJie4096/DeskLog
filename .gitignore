@@ -1,0 +1,40 @@
+# Dependencies and language caches
+node_modules/
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Runtime data and generated artifacts
+/data/
+/runtime/
+/screenshots/
+/logs/
+/tmp/
+*.log
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+/dist/
+/build/
+/releases/
+coverage/
+**/bin/
+**/obj/
+**/TestResults/
+src/Riji.Web/dist/
+artifacts/
