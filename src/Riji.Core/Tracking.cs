@@ -3,8 +3,9 @@ namespace Riji.Core;
 public enum RecordingMode { Default, Away, Locked, NoScreen }
 public sealed record AppIdentity(string Id, string Name);
 public sealed record Observation(DateTimeOffset Utc, double MonotonicSeconds, AppIdentity? App,
-    double LastInputSeconds, bool SystemBlocked = false, int ProcessId = 0, string WindowKey = "", WebsiteEvidence? Website = null);
+    double LastInputSeconds, bool SystemBlocked = false, int ProcessId = 0, string WindowKey = "", WebsiteEvidence? Website = null, bool DesktopShown = false);
 public sealed record TrackingSettings(bool AutoRecord = true, bool AppTiming = true, int IdleSeconds = 120,
+    bool DesktopAutoAway = true,
     string Theme = "dark", bool WebsiteTitles = true, bool FollowSystemTheme = true, bool StartWithWindows = true, WebsiteRule[]? WebsiteRules = null, bool WebsiteSnippets = false,
     WebsiteProject[]? WebsiteProjects = null, int HourlyMinimumMinutes = 12, string? HourlyPrompt = null);
 public sealed record ModeState(RecordingMode Mode = RecordingMode.Default, DateTimeOffset? Until = null,
@@ -50,7 +51,7 @@ public sealed class Tracker
         if (value.HourlyMinimumMinutes is < 1 or > 60 || value.HourlyPrompt is { } prompt && (string.IsNullOrWhiteSpace(prompt) || prompt.Length > 10000))
             throw new ArgumentException("自动摘要门槛应为 1–60 分钟，提示词不能为空且最多 10000 字。");
         if (value.IdleSeconds is < 30 or > 3600 || value.Theme is not ("dark" or "light"))
-            throw new ArgumentException("空闲时间应为 30–3600 秒，主题应为深色或浅色。");
+            throw new ArgumentException("空闲时间应为 1–3600 秒，主题应为深色或浅色。");
     }
 
     // Attribute elapsed time to the last observed foreground application.
@@ -83,7 +84,8 @@ public sealed class Tracker
         if (State.Until is { } deadline && next.Utc >= deadline) State = new();
         if (!next.SystemBlocked)
         {
-            if (State.Mode == RecordingMode.Default && next.MonotonicSeconds - next.LastInputSeconds >= Settings.IdleSeconds)
+            var idleLimit = next.DesktopShown && Settings.DesktopAutoAway ? 5 : Settings.IdleSeconds;
+            if (State.Mode == RecordingMode.Default && next.MonotonicSeconds - next.LastInputSeconds >= idleLimit)
                 State = new(RecordingMode.Away);
             else if (State.Mode == RecordingMode.Away && next.LastInputSeconds > (previous?.LastInputSeconds ?? next.LastInputSeconds)
                 && (State.CooldownUntil is null || next.Utc >= State.CooldownUntil))

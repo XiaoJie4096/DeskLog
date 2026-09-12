@@ -1,5 +1,5 @@
 export type Mode = 'Default' | 'Away' | 'Locked' | 'NoScreen';
-export type Settings = { hourlyMinimumMinutes: number; hourlyPrompt?: string | null; autoRecord: boolean; appTiming: boolean; idleSeconds: number; theme: 'dark' | 'light'; websiteTitles: boolean; followSystemTheme: boolean; startWithWindows: boolean; websiteSnippets: boolean; websiteProjects?: { id: string; name: string; domains: string[] }[] | null; websiteRules?: { domain: string; allow: boolean }[] | null };
+export type Settings = { hourlyMinimumMinutes: number; hourlyPrompt?: string | null; autoRecord: boolean; appTiming: boolean; idleSeconds: number; desktopAutoAway: boolean; theme: 'dark' | 'light'; websiteTitles: boolean; followSystemTheme: boolean; startWithWindows: boolean; websiteSnippets: boolean; websiteProjects?: { id: string; name: string; domains: string[] }[] | null; websiteRules?: { domain: string; allow: boolean }[] | null };
 export type Category = { id: string; name: string; meaning: string; color: string; enabled: boolean };
 export type CaptureSettings = { enabled: boolean; intervalSeconds: number; keepImages: boolean; maxAttempts: number; prompt?: string | null };
 export type GenerationState = 'Running' | 'Succeeded' | 'Failed' | 'Cancelled';

@@ -54,7 +54,8 @@ public sealed class WindowsObserver : IDisposable
             lastApp = Resolve(window);
         }
         Native.GetWindowThreadProcessId(window, out var pid);
-        return new(DateTimeOffset.UtcNow, now, lastApp, lastInput, blocked, (int)pid, $"{pid}:{window}");
+        var desktop = !blocked && window == Native.GetShellWindow();
+        return new(DateTimeOffset.UtcNow, now, lastApp, lastInput, blocked, (int)pid, $"{pid}:{window}", null, desktop);
     }
 
     // Secure desktops and inaccessible desktop state are conservatively paused.
@@ -125,6 +126,7 @@ public sealed class WindowsObserver : IDisposable
         internal delegate nint HookProc(int code, nint message, nint data);
         internal delegate void WinEventProc(nint hook, uint evt, nint window, int obj, int child, uint thread, uint time);
         [DllImport("user32.dll")] internal static extern nint GetForegroundWindow();
+        [DllImport("user32.dll")] internal static extern nint GetShellWindow();
         [DllImport("user32.dll")] internal static extern uint GetWindowThreadProcessId(nint window, out uint pid);
         [DllImport("kernel32.dll")] internal static extern nint OpenProcess(uint access, bool inherit, uint pid);
         [DllImport("kernel32.dll")] internal static extern bool CloseHandle(nint handle);
