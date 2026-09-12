@@ -15,35 +15,7 @@
 
 AI 功能需要用户自行配置服务地址、模型和密钥。启用后，相关截图和活动记录会发送到指定服务。
 
-## 运行要求
-
-- Windows x64
-- .NET SDK 10.0.300 或兼容版本
-- Node.js 22.12 或更新版本
-- Microsoft Edge WebView2 Runtime
-
-## 开发运行
-
-双击根目录的 `启动开发版.cmd`，或在 PowerShell 中执行：
-
-```powershell
-./scripts/build-desktop.ps1 -Test
-```
-
-开发数据和正式数据分别保存在：
-
-```text
-%LOCALAPPDATA%\Riji\Development
-%LOCALAPPDATA%\Riji\Production
-```
-
-## 安装版本
-
-运行 `scripts/package-desktop.ps1` 生成 Windows x64 安装包。解压后执行包内的 `install-desktop.ps1`，安装程序默认使用正式数据目录：
-
-```text
-%LOCALAPPDATA%\Riji\Production
-```
+# 
 
 ## 浏览器扩展
 
