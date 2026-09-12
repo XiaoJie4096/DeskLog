@@ -17,11 +17,9 @@ AI 功能需要用户自行配置服务地址、模型和密钥。启用后，�
 
 ## 界面展示
 
-![应用使用分布](docs/images/application-distribution.png)
+![今天](docs/images/today.png)
 
-![应用统计](docs/images/application-statistics.png)
-
-![浏览器网页标题示例](docs/images/browser-title-example.png)
+![回顾](docs/images/review.png)
 
 ## 安装
 
