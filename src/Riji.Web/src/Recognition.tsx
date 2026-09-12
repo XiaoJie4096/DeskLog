@@ -100,10 +100,10 @@ export function RecognitionTimeline({ state }: { state: Snapshot }) {
   const [busy, setBusy] = useState<number | null>(null);
   const [error, setError] = useState('');
   useEffect(() => { setError(''); }, [state.day, hour]);
-  async function summarize(selectedHour: number) {
+  async function summarize(selectedHour: number, retryId?: string) {
     const start = new Date(`${state.day}T${String(selectedHour).padStart(2, '0')}:00:00`);
     setBusy(selectedHour); setError('');
-    try { await command('hourSummaryGenerate', { start: start.toISOString() }); }
+    try { if (retryId) await command('summaryRetry', { summaryId: retryId }); else await command('hourSummaryGenerate', { start: start.toISOString() }); }
     catch (error) { setError(error instanceof Error ? error.message : '时段摘要生成失败'); }
     finally { setBusy(null); }
   }
@@ -111,7 +111,7 @@ export function RecognitionTimeline({ state }: { state: Snapshot }) {
   const gaps = sampleGaps(records);
   const groups = groupSamplesByHour(visible).reverse();
   return <section className="review-timeline history"><div className="section-head"><h2>活动片段</h2><label>查看小时 <select value={hour} onChange={e => setHour(e.target.value)}><option value="all">全天</option>{Array.from({ length: 24 }, (_, i) => <option key={i} value={i}>{String(i).padStart(2, '0')}:00</option>)}</select></label></div>
-    <p>每个整点自动总结刚结束的小时，并更新已手动生成的摘要。</p>
+    <p>每个整点，成功识别累计达到 {state.settings.hourlyMinimumMinutes} 分钟的时段自动生成摘要；不足门槛可手动生成。</p>
     {(error || state.hourlySummaryError) && <p role="alert">{error || state.hourlySummaryError}</p>}
     {groups.length ? groups.map(group => {
       const start = +new Date(`${state.day}T${String(group.hour).padStart(2, '0')}:00:00`);
@@ -122,7 +122,7 @@ export function RecognitionTimeline({ state }: { state: Snapshot }) {
         {saved?.text ? <div className="hour-overview"><SummaryText text={saved.text} /><small>{saved.automatic ? '整点自动生成' : '手动生成'} · {new Date(saved.created).toLocaleString('zh-CN')}</small></div> : <p className="hour-placeholder">{generating ? '正在整理本时段的活动记录…' : '暂无时段摘要，点击“生成时段摘要”开始整理。'}</p>}
         {saved && generating && <small role="status">正在生成新版摘要，完成后更新。</small>}
         {generating && <button onClick={() => void command('summaryCancel').catch(error => setError(error.message))}>取消生成</button>}
-        {latest && (latest.state === 'Failed' || latest.state === 'Cancelled') && <p role="alert">{latest.automatic ? '自动摘要' : '时段摘要'}{latest.state === 'Cancelled' ? '已取消' : '生成失败'}：{latest.error}{saved ? '。仍显示上次成功生成的摘要。' : ''}</p>}
+        {latest && (latest.state === 'Failed' || latest.state === 'Cancelled') && <p role="alert">{latest.automatic ? '自动摘要' : '时段摘要'}{latest.state === 'Cancelled' ? '已取消' : '生成失败'}：{latest.error}{saved ? '。仍显示上次成功生成的摘要。' : ''} <button disabled={busy !== null || state.summaryBusy || !state.recognition.configured} onClick={() => void summarize(group.hour, latest.id)}>重试摘要</button></p>}
         {!state.recognition.configured && <small>请先在设置中验证 AI 服务。</small>}
         <div className="hour-categories">{Array.from(group.records.reduce((map, record) => { const key = record.category.name; map.set(key, (map.get(key) ?? 0) + record.seconds); return map; }, new Map<string, number>())).map(([name, seconds]) => <span key={name}>{name} · {Math.round(seconds / 60)} 分钟</span>)}</div>
         <details><summary>展开 {group.records.length} 条原始记录</summary><ol className="recognition-timeline">{[...group.records].reverse().map(record => <li key={record.id}><time>{new Date(record.utc).toLocaleTimeString('zh-CN')}</time><div>{gaps.has(record.id) && <p className="sample-gap">记录缺口：{new Date(gaps.get(record.id)!.start).toLocaleTimeString('zh-CN')} 至 {new Date(record.utc).toLocaleTimeString('zh-CN')}，两次采样相隔 {Math.round(gaps.get(record.id)!.elapsedSeconds / 60)} 分钟。之间未保存其他成功采样。</p>}<span className="category-label" style={{ borderColor: record.category.color }}>{record.category.name}</span><p>{record.description}</p><small>{record.seconds / 60} 分钟采样</small></div></li>)}</ol></details>

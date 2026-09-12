@@ -34,6 +34,7 @@ public sealed class HourlySummaryTests
         public Fixture() { Store = new(Path.Combine(Folder, "test.db")); Services(Epoch); }
         public void Services(DateTimeOffset now)
         {
+            Store.SaveValue("settings", new TrackingSettings(HourlyMinimumMinutes: 1));
             Summary = new(Store, new(new HttpClient(Handler)), () => (new("https://example.com/v1", "test", "encrypted", 4000), "test-secret"));
             Hourly = new(Store, Summary, TimeZoneInfo.Utc, now, () => Allowed);
         }

@@ -29,6 +29,11 @@ public sealed class SummaryService
     }
 
     private static ModelSnapshot Snapshot(AiConfiguration value) => new(value.Endpoint, value.Model, value.Identity, value.InputBudget);
+    private (AiConfiguration Configuration, string Key) SummaryConfiguration()
+    {
+        var (config, key) = configuration();
+        return (config with { Model = config.SummaryModel ?? config.Model }, key);
+    }
     private void Available() { if (closing || Busy) throw new InvalidOperationException("已有生成任务正在进行，请等待或取消。"); }
 
     public async Task<string> Generate(SummaryRange range, string prompt, bool hourly = false, bool automatic = false)
@@ -40,7 +45,7 @@ public sealed class SummaryService
         if (string.IsNullOrWhiteSpace(prompt) || prompt.Length > 10000) throw new ArgumentException("请填写不超过 10000 字的提示词。");
         var sources = store.Records(range.Start, range.End).ToArray();
         if (sources.Length == 0) throw new ArgumentException("所选范围没有成功识别记录，未调用 AI。");
-        var (config, key) = configuration(); config = config with { Model = config.SummaryModel ?? config.Model }; var now = DateTimeOffset.UtcNow;
+        var (config, key) = SummaryConfiguration(); var now = DateTimeOffset.UtcNow;
         var summary = new SummaryDocument(Guid.NewGuid().ToString("N"), range, now, now, prompt, sources, Snapshot(config), Hourly: hourly, Automatic: automatic, PromptVersion: hourly ? 1 : 0);
         store.SaveSummary(summary);
         await Run(summary, config, key); return summary.Id;
@@ -50,7 +55,7 @@ public sealed class SummaryService
     {
         Available(); var summary = store.Summary(id);
         if (summary.State == GenerationState.Succeeded) throw new ArgumentException("此总结已完成，重新生成会创建新条目。");
-        var (config, key) = configuration();
+        var (config, key) = SummaryConfiguration();
         if (Snapshot(config) != summary.Model) throw new ArgumentException("模型配置已改变，请重新生成新总结，避免混用不同配置的分批结果。");
         await Run(summary with { State = GenerationState.Running, Error = null }, config, key);
     }
@@ -128,7 +133,7 @@ public sealed class SummaryService
             question = previous.Question;
         }
         if (string.IsNullOrWhiteSpace(question) || question.Length > 10000) throw new ArgumentException("请输入不超过 10000 字的问题。");
-        var (config, key) = configuration();
+        var (config, key) = SummaryConfiguration();
         var prompt = SummaryPrompts.Grounding + "本篇总结及其范围：\n" + JsonSerializer.Serialize(new { summary.Range, summary.Text }, PromptJson)
             + "\n本篇已完成对话：\n" + JsonSerializer.Serialize(conversation.Where(turn => turn.State == GenerationState.Succeeded).Select(turn => new { turn.Question, turn.Reply }), PromptJson)
             + "\n本次问题：\n" + question;

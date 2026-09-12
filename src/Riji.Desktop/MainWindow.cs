@@ -296,6 +296,7 @@ public sealed class MainWindow : Window
                 recognition = new { settings = recognition.Settings, defaultPrompt = RecognitionPrompts.Default, categories = recognition.Categories, busy = recognition.Busy, paused = recognition.Paused,
                     error = recognition.Error, configured = recognition.Configuration is not null, endpoint = recognition.Configuration?.Endpoint, model = recognition.Configuration?.Model, summaryModel = recognition.Configuration?.SummaryModel ?? recognition.Configuration?.Model,
                     jobs = store.JobCounts(), latestSample = store.LatestRecognizedSample(), records = store.Records(selectedDay) },
+                hourlyDefaultPrompt = HourlySummaryService.Prompt,
                 hourlySummaryError = hourlySummaries.Error, summaryBusy = summaries.Busy, summaryForm = store.Read<SummaryForm>("summary-form"),
                 summaryPresets = store.Read<PromptPreset[]>("summary-presets") ?? PromptPreset.Defaults,
                 summaries = store.SummaryHeaders(),
