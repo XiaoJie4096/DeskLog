@@ -2,7 +2,7 @@
 
 日迹（DeskLog）是一款面向个人的 Windows 电脑活动记录与回顾工具。它记录前台应用使用时长，并可按设置记录网站、截图识别结果和 AI 时段摘要，帮助你回顾自己在电脑前做过什么。
 
-项目目前处于预览阶段，应用界面为中文。
+当前版本为 `0.1.0`，应用界面为中文。
 
 ## 功能
 
@@ -15,11 +15,13 @@
 
 AI 功能需要用户自行配置服务地址、模型和密钥。启用后，相关截图和活动记录会发送到指定服务。
 
-# 
+## 安装
+
+下载 `DeskLog-Setup-v0.1.0.exe`，双击后选择安装目录。升级时会沿用已有安装目录，并要求先正常退出日迹。正式数据保存在 `%LOCALAPPDATA%\Riji\Production`，安装过程不自动创建数据备份。
 
 ## 浏览器扩展
 
-`browser-extension` 目录支持 Chrome、Edge 和 Firefox。Chrome、Edge 可直接加载未打包扩展；Firefox 可先执行：
+安装目录的 `extensions` 文件夹中包含 Chrome / Edge 和 Firefox 的未打包扩展。`browser-extension` 目录支持开发加载；Firefox 开发版可先执行：
 
 ```powershell
 node scripts/prepare-browser-extension.cjs firefox

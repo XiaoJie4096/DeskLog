@@ -28,6 +28,14 @@
 
 ## 构建交付包
 
+稳定版安装器使用 Inno Setup 生成：
+
+```powershell
+./scripts/build-stable-release.ps1
+```
+
+输出为 `artifacts/releases/DeskLog-Setup-v0.1.0.exe`。安装器使用固定应用标识，升级沿用安装目录；安装前要求日迹退出，不自动创建数据备份。安装目录包含 `extensions/chrome-edge` 和 `extensions/firefox` 两个未打包扩展目录。
+
 在工作区已提交且干净时运行：
 
 ```powershell
