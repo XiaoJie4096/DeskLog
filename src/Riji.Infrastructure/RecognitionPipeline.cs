@@ -78,6 +78,8 @@ public sealed class RecognitionPipeline : IDisposable
             var bytes = await File.ReadAllBytesAsync(image, stop.Token);
             if (!allowed() || closing) throw new InvalidOperationException("记录状态已改变，本次验证未发送。请恢复允许识屏后重试。");
             var result = await client.Recognize(candidate, key, bytes, categories, stop.Token, prompt);
+            var summaryConfiguration = candidate with { Model = candidate.SummaryModel ?? candidate.Model };
+            await client.Text(summaryConfiguration, key, "请只回复“验证成功”。", stop.Token);
             store.SaveValue("ai-active", candidate); Configuration = candidate;
             store.SaveValue("ai-paused", false); Paused = false; Error = null;
             return result;

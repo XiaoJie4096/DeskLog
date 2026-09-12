@@ -8,7 +8,9 @@ import { groupSamplesByHour, sampleGaps } from './record-gaps';
 export function RecognitionSettings({ state, section }: { state: Snapshot; section: 'capture' | 'categories' }) {
   const current = state.recognition;
   const [endpoint, setEndpoint] = useState(current.endpoint ?? '');
-  const [model, setModel] = useState(current.model ?? ''); const [summaryModel, setSummaryModel] = useState(current.summaryModel ?? current.model ?? '');
+  const [model, setModel] = useState(current.model ?? '');
+  const [summaryModel, setSummaryModel] = useState(current.summaryModel ?? current.model ?? '');
+  const [summaryModelEdited, setSummaryModelEdited] = useState(false);
   const [key, setKey] = useState('');
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
@@ -47,12 +49,12 @@ export function RecognitionSettings({ state, section }: { state: Snapshot; secti
         <div className="summary-actions"><button className="primary" disabled={busy || !prompt?.trim()}>保存提示词</button><button type="button" disabled={busy} onClick={() => setPrompt(current.defaultPrompt)}>恢复默认</button></div>
         <small>恢复默认后点击“保存提示词”生效。</small>
       </form>
-      <form className="ai-form" onSubmit={event => { event.preventDefault(); const submittedKey = key; setKey(''); void run('testAi', { endpoint, model, summaryModel, key: submittedKey }, '真实图片验证成功，配置已启用。截图开关保持原设置。'); }}>
+      <form className="ai-form" onSubmit={event => { event.preventDefault(); const submittedKey = key; setKey(''); const selectedSummaryModel = summaryModelEdited ? summaryModel.trim() : model.trim(); void run('testAi', { endpoint, model, summaryModel: selectedSummaryModel, key: submittedKey }, '真实图片和两个模型验证成功，配置已启用。截图开关保持原设置。'); }}>
         <h3>AI 服务配置</h3><p>填写支持图片的 Chat Completions 接口。验证失败时保留旧有效配置。</p>
         <label>接口地址<input type="url" required value={endpoint} onChange={e => { setEndpoint(e.target.value); }} placeholder="https://服务地址/v1" disabled={busy} /></label>
-        <label>识图模型<input required maxLength={200} value={model} onChange={e => setModel(e.target.value)} disabled={busy} /></label>
-        <label>总结（对话）模型<input maxLength={200} value={summaryModel} onChange={e => setSummaryModel(e.target.value)} disabled={busy} /><small>用于时段摘要、AI 总结和后续对话；留空时使用识图模型。</small></label>
-        <label>API Key<input type="password" autoComplete="off" required value={key} onChange={e => setKey(e.target.value)} disabled={busy} /><small>仅在本机使用当前 Windows 账户加密保存，不回传到界面。</small></label>
+        <label>识图模型<input required maxLength={200} value={model} onChange={e => { const value = e.target.value; setModel(value); if (!summaryModelEdited) setSummaryModel(value); }} disabled={busy} /></label>
+        <label>总结（对话）模型<input maxLength={200} value={summaryModel} onChange={e => { setSummaryModelEdited(true); setSummaryModel(e.target.value); }} disabled={busy} /><small>用于时段摘要、AI 总结和后续对话；未单独修改时自动跟随识图模型。</small></label>
+        <label>API Key<input type="password" autoComplete="off" required={!current.configured} value={key} placeholder={current.configured ? '********（已保存，留空沿用）' : '请输入 API Key'} onChange={e => setKey(e.target.value)} disabled={busy} /><small>已保存的 Key 不会回传到界面；留空会沿用本机保存的 Key，输入新值可替换。</small></label>
 
         <button className="primary" disabled={busy || current.busy}>{busy ? '正在验证…' : '发送真实截图并验证配置'}</button>
       </form>

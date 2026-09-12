@@ -237,7 +237,10 @@ public sealed class MainWindow : Window
                 case "retryRecognition": recognition.RetryFailed(); Push(); break;
                 case "recognitionJobs": value = store.UnfinishedJobs(root.GetProperty("offset").GetInt32()); break;
                 case "testAi":
-                    await recognition.TestConfiguration(root.GetProperty("endpoint").GetString()!, root.GetProperty("model").GetString()!, root.GetProperty("key").GetString()!, 12000, root.TryGetProperty("summaryModel", out var sm) ? sm.GetString() : null);
+                    var submittedKey = root.TryGetProperty("key", out var keyElement) ? keyElement.GetString() : null;
+                    if (string.IsNullOrWhiteSpace(submittedKey) && recognition.Configuration is not null) submittedKey = recognition.ActiveKey();
+                    if (string.IsNullOrWhiteSpace(submittedKey)) throw new ArgumentException("首次配置时请填写 API Key。");
+                    await recognition.TestConfiguration(root.GetProperty("endpoint").GetString()!, root.GetProperty("model").GetString()!, submittedKey, 12000, root.TryGetProperty("summaryModel", out var sm) ? sm.GetString() : null);
                     Push(); break;
                 case "summaryForm":
                     var form = root.GetProperty("form").Deserialize<SummaryForm>(json) ?? throw new ArgumentException("总结草稿无效。");

@@ -1,37 +1,60 @@
-# 日迹
+# 日迹 · DeskLog
 
-日迹是一款面向个人的 Windows 电脑活动记录与回顾工具。支持前台应用计时、网站独立归属、截图识别、时段摘要、AI 总结与对话，以及本地备份。
+日迹（DeskLog）是一款面向个人的 Windows 电脑活动记录与回顾工具。它记录前台应用使用时长，并可按设置记录网站、截图识别结果和 AI 时段摘要，帮助你回顾自己在电脑前做过什么。
+
+项目目前处于预览阶段，应用界面为中文。
+
+## 功能
+
+- 记录前台应用使用时长和成功识别累计时长。
+- 支持默认、离开、锁定、不识屏四种记录状态。
+- 支持 Chrome、Edge、Firefox 浏览器的网站归属统计。
+- 按天和小时回顾活动记录，支持手动和自动时段摘要。
+- 支持自定义截图识别提示词、摘要提示词和活动分类。
+- 数据保存在本机，支持备份、导入、升级备份和恢复。
+
+AI 功能需要用户自行配置服务地址、模型和密钥。启用后，相关截图和活动记录会发送到指定服务。
+
+## 运行要求
+
+- Windows x64
+- .NET SDK 10.0.300 或兼容版本
+- Node.js 22.12 或更新版本
+- Microsoft Edge WebView2 Runtime
 
 ## 开发运行
 
-需要 Windows x64、.NET SDK 10.0.300（允许同系列补丁）、Node.js 22.12 或更新版本，以及 Microsoft Edge WebView2 Runtime。
-
-双击根目录的 **启动开发版.cmd**，会先退出开发实例、构建当前源码，再启动开发版。失败时窗口保留错误信息。
-
-也可在 PowerShell 中执行：
+双击根目录的 `启动开发版.cmd`，或在 PowerShell 中执行：
 
 ```powershell
 ./scripts/build-desktop.ps1 -Test
-./scripts/start-desktop.ps1
 ```
 
-开发数据位于 `%LOCALAPPDATA%\Riji\Development`，正式数据位于 `%LOCALAPPDATA%\Riji\Production`。两者分离，源码目录移动不改变数据位置。
+开发数据和正式数据分别保存在：
 
-## 目录
+```text
+%LOCALAPPDATA%\Riji\Development
+%LOCALAPPDATA%\Riji\Production
+```
 
-- `src/Riji.Core`：计时、状态、归属规则与领域模型。
-- `src/Riji.Infrastructure`：SQLite 存储、AI 请求、任务及数据维护。
-- `src/Riji.Windows`：Windows 前台与系统事件集成。
-- `src/Riji.Desktop`：WPF 容器、WebView2 桥接及本机扩展服务。
-- `src/Riji.Web`：React / TypeScript 界面。
-- `browser-extension`：Chrome、Edge、Firefox 扩展共用源码。
-- `assets/icons`：应用图标。
-- `tests`：领域、存储、界面数据和扩展测试。
-- `scripts`：构建、启动、扩展准备、打包与恢复工具。
-- `docs`：当前功能与维护文档。
+## 安装版本
 
-## 文档
+运行 `scripts/package-desktop.ps1` 生成 Windows x64 安装包。解压后执行包内的 `install-desktop.ps1`，安装程序默认使用正式数据目录：
 
-[开发说明](docs/development.md) · [架构](docs/architecture.md) · [隐私与数据](docs/privacy.md) · [浏览器扩展](docs/browser-extension.md) · [备份与恢复](docs/backup-and-restore.md)
+```text
+%LOCALAPPDATA%\Riji\Production
+```
 
-第三方依赖及许可见 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)。本项目自身的开源许可证尚未选定。
+## 浏览器扩展
+
+`browser-extension` 目录支持 Chrome、Edge 和 Firefox。Chrome、Edge 可直接加载未打包扩展；Firefox 可先执行：
+
+```powershell
+node scripts/prepare-browser-extension.cjs firefox
+```
+
+扩展只向本机日迹服务发送当前前台网页的必要信息，不记录隐私窗口、浏览器内部页面、完整网址、网页正文或摘要片段。
+
+## 开源许可
+
+本项目使用 [MIT License](LICENSE)。第三方依赖的许可和版权声明见 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)。
