@@ -51,6 +51,7 @@ export function RecognitionSettings({ state, section }: { state: Snapshot; secti
         <h3>AI 服务配置</h3><p>填写支持图片的 Chat Completions 接口。验证失败时保留旧有效配置。</p>
         <label>接口地址<input type="url" required value={endpoint} onChange={e => { setEndpoint(e.target.value); }} placeholder="https://服务地址/v1" disabled={busy} /></label>
         <label>识图模型<input required maxLength={200} value={model} onChange={e => setModel(e.target.value)} disabled={busy} /></label>
+        <label>总结（对话）模型<input maxLength={200} value={summaryModel} onChange={e => setSummaryModel(e.target.value)} disabled={busy} /><small>用于时段摘要、AI 总结和后续对话；留空时使用识图模型。</small></label>
         <label>API Key<input type="password" autoComplete="off" required value={key} onChange={e => setKey(e.target.value)} disabled={busy} /><small>仅在本机使用当前 Windows 账户加密保存，不回传到界面。</small></label>
 
         <button className="primary" disabled={busy || current.busy}>{busy ? '正在验证…' : '发送真实截图并验证配置'}</button>
