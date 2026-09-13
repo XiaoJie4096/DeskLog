@@ -1,10 +1,16 @@
-param()
+param(
+    [string]$Version = '0.1.0',
+    [string]$OutputDirectory = 'artifacts/releases',
+    [string]$OutputBaseName = ''
+)
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
-$version = '0.1.0'
+$version = $Version
+$outputRoot = Join-Path $projectRoot $OutputDirectory
+$outputBase = if ($OutputBaseName) { $OutputBaseName } else { 'DeskLog-Setup-v' + $version }
 $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 $payload = Join-Path $projectRoot ('artifacts/release-payload-' + $stamp)
-$release = Join-Path $projectRoot 'artifacts/releases'
+$release = $outputRoot
 $publish = Join-Path $payload 'publish'
 $extensions = Join-Path $payload 'extensions'
 $thirdParty = Join-Path $payload 'ThirdParty'
@@ -46,11 +52,17 @@ $inno = @(
 ) | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
 if (-not $inno) { throw '未找到 Inno Setup 6，请先安装 Inno Setup。' }
 $env:DESKLOG_PAYLOAD = $payload
+$env:DESKLOG_APP_VERSION = $version
+$env:DESKLOG_OUTPUT_BASE = $outputBase
 try {
     & $inno (Join-Path $projectRoot 'installer/DeskLog.iss') (('/O' + $release))
     if ($LASTEXITCODE -ne 0) { throw 'Inno Setup 编译失败。' }
-} finally { Remove-Item Env:DESKLOG_PAYLOAD -ErrorAction SilentlyContinue }
-$installer = Join-Path $release ('DeskLog-Setup-v' + $version + '.exe')
+} finally {
+    Remove-Item Env:DESKLOG_PAYLOAD -ErrorAction SilentlyContinue
+    Remove-Item Env:DESKLOG_APP_VERSION -ErrorAction SilentlyContinue
+    Remove-Item Env:DESKLOG_OUTPUT_BASE -ErrorAction SilentlyContinue
+}
+$installer = Join-Path $release ($outputBase + '.exe')
 if (-not (Test-Path -LiteralPath $installer)) { throw '未生成稳定版安装器。' }
 $hash = (Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash
 Set-Content -LiteralPath (Join-Path $release 'SHA256SUMS.txt') -Value ($hash + '  ' + (Split-Path -Leaf $installer)) -Encoding utf8

@@ -1,4 +1,5 @@
-#define AppVersion "0.1.0"
+#define AppVersion GetEnv("DESKLOG_APP_VERSION")
+#define OutputBaseFilename GetEnv("DESKLOG_OUTPUT_BASE")
 #define PayloadRoot GetEnv("DESKLOG_PAYLOAD")
 
 [Setup]
@@ -13,7 +14,7 @@ PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 OutputDir=.
-OutputBaseFilename=DeskLog-Setup-v{#AppVersion}
+OutputBaseFilename={#OutputBaseFilename}
 SetupIconFile={#PayloadRoot}\riji.ico
 UninstallDisplayIcon={app}\DeskLog.exe
 Compression=lzma2
