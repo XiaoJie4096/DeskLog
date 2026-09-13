@@ -47,7 +47,7 @@ public sealed partial class LocalStore
     public void Complete(RecognitionJob job, RecognitionResult result)
     {
         RecognitionValidation.Validate(result, job.Categories);
-        var record = new ActivityRecord(job.Id, job.Utc, job.Day, job.IntervalSeconds, result.Description.Trim(), job.Categories.Single(x => x.Id == result.CategoryId), result.Confidence);
+        var record = new ActivityRecord(job.Id, job.Utc, job.Day, job.IntervalSeconds, result.Description.Trim(), job.Categories.Single(x => x.Id == result.CategoryId), result.Confidence, job.Context?.AppName, job.Context?.BrowserTitle, job.Context?.Domain);
         using var transaction = connection.BeginTransaction();
         using var command = connection.CreateCommand(); command.Transaction = transaction;
         command.CommandText = "INSERT OR IGNORE INTO records VALUES($id,$utc,$day,$seconds,$payload)";

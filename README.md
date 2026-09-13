@@ -23,7 +23,7 @@ AI 功能需要用户自行配置服务地址、模型和密钥。启用后，�
 
 ## 安装
 
-下载 `DeskLog-Setup-v0.1.0.exe`，双击后选择安装目录。升级时会沿用已有安装目录，并要求先正常退出日迹。正式数据保存在 `%LOCALAPPDATA%\Riji\Production`，安装过程不自动创建数据备份。
+下载 `DeskLog-Setup-v0.1.0.exe`，双击后选择安装目录。升级时会沿用已有安装目录，并要求先正常退出日迹。正式数据保存在 `%LOCALAPPDATA%\Riji\Production`。
 
 ## 浏览器扩展
 

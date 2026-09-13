@@ -6,8 +6,19 @@ using Riji.Core;
 namespace Riji.Infrastructure;
 
 // Use a provider-configurable Chat Completions wire format, without logging request bodies or credentials.
+public sealed record ModelInfo(string Id, int? ContextK);
 public sealed class HttpAiClient(HttpClient client)
 {
+    public async Task<ModelInfo[]> Models(string endpoint, string key, CancellationToken cancellation = default)
+    {
+        AiConfiguration.ValidateEndpoint(endpoint);
+        using var request = new HttpRequestMessage(HttpMethod.Get, endpoint.TrimEnd('/') + "/models");
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", key);
+        using var response = await client.SendAsync(request, cancellation);
+        if (!response.IsSuccessStatusCode) throw new AiFailure($"读取模型列表失败：HTTP {(int)response.StatusCode}。", (int)response.StatusCode >= 500);
+        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellation));
+        return doc.RootElement.GetProperty("data").EnumerateArray().Select(item => new ModelInfo(item.GetProperty("id").GetString()!, item.TryGetProperty("context_length", out var c) && c.ValueKind == JsonValueKind.Number ? c.GetInt32() / 1000 : null)).OrderBy(item => item.Id).ToArray();
+    }
     public async Task<string> Text(AiConfiguration configuration, string key, string prompt, CancellationToken cancellation)
         => await Send(configuration, key, new object[] { new { role = "user", content = prompt } }, cancellation);
 

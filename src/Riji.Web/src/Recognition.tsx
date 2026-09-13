@@ -11,6 +11,8 @@ export function RecognitionSettings({ state, section }: { state: Snapshot; secti
   const [model, setModel] = useState(current.model ?? '');
   const [summaryModel, setSummaryModel] = useState(current.summaryModel ?? current.model ?? '');
   const [summaryModelEdited, setSummaryModelEdited] = useState(false);
+  const [contextK, setContextK] = useState(100);
+  const [models, setModels] = useState<{ id: string; contextK: number | null }[]>([]);
   const [key, setKey] = useState('');
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
@@ -49,11 +51,14 @@ export function RecognitionSettings({ state, section }: { state: Snapshot; secti
         <div className="summary-actions"><button className="primary" disabled={busy || !prompt?.trim()}>保存提示词</button><button type="button" disabled={busy} onClick={() => setPrompt(current.defaultPrompt)}>恢复默认</button></div>
         <small>恢复默认后点击“保存提示词”生效。</small>
       </form>
-      <form className="ai-form" onSubmit={event => { event.preventDefault(); const submittedKey = key; setKey(''); const selectedSummaryModel = summaryModelEdited ? summaryModel.trim() : model.trim(); void run('testAi', { endpoint, model, summaryModel: selectedSummaryModel, key: submittedKey }, '真实图片和两个模型验证成功，配置已启用。截图开关保持原设置。'); }}>
+      <form className="ai-form" onSubmit={event => { event.preventDefault(); const submittedKey = key; setKey(''); const selectedSummaryModel = summaryModelEdited ? summaryModel.trim() : model.trim(); void run('testAi', { endpoint, model, summaryModel: selectedSummaryModel, contextK, key: submittedKey }, '真实图片和两个模型验证成功，配置已启用。截图开关保持原设置。'); }}>
         <h3>AI 服务配置</h3><p>填写支持图片的 Chat Completions 接口。验证失败时保留旧有效配置。</p>
         <label>接口地址<input type="url" required value={endpoint} onChange={e => { setEndpoint(e.target.value); }} placeholder="https://服务地址/v1" disabled={busy} /></label>
-        <label>识图模型<input required maxLength={200} value={model} onChange={e => { const value = e.target.value; setModel(value); if (!summaryModelEdited) setSummaryModel(value); }} disabled={busy} /></label>
-        <label>总结（对话）模型<input maxLength={200} value={summaryModel} onChange={e => { setSummaryModelEdited(true); setSummaryModel(e.target.value); }} disabled={busy} /><small>用于时段摘要、AI 总结和后续对话；未单独修改时自动跟随识图模型。</small></label>
+        <label>识图模型{models.length ? <select value={model} onChange={e => { const value = e.target.value; setModel(value); if (!summaryModelEdited) setSummaryModel(value); const hit = models.find(item => item.id === value); if (hit?.contextK) setContextK(hit.contextK); }} disabled={busy}>{models.map(item => <option key={item.id}>{item.id}</option>)}</select> : <input required maxLength={200} value={model} onChange={e => { const value = e.target.value; setModel(value); if (!summaryModelEdited) setSummaryModel(value); }} disabled={busy} />}</label>
+        <label>总结（对话）模型{models.length ? <select value={summaryModel} onChange={e => { setSummaryModelEdited(true); setSummaryModel(e.target.value); }} disabled={busy}>{models.map(item => <option key={item.id}>{item.id}</option>)}</select> : <input maxLength={200} value={summaryModel} onChange={e => { setSummaryModelEdited(true); setSummaryModel(e.target.value); }} disabled={busy} />}<small>用于时段摘要、AI 总结和后续对话；未单独修改时自动跟随识图模型。</small></label>
+        <label>上下文长度（K token）<input type="number" min="4" max="150" value={contextK} onChange={e => setContextK(Number(e.target.value))} disabled={busy} /><small>默认 100K。程序会为提示词和输出预留空间。</small></label>
+        <button type="button" disabled={busy || !endpoint || (!key && !current.configured)} onClick={async () => { try { const list = await command<{ id: string; contextK: number | null }[]>('models', { endpoint, key }); setModels(list); setMessage('已读取 ' + list.length + ' 个模型'); } catch (error) { setMessage(error instanceof Error ? error.message : '读取模型失败'); } }}>获取模型信息</button><button type="button" disabled={busy || !endpoint || !model} onClick={() => void run('saveAi', { endpoint, model, summaryModel: summaryModelEdited ? summaryModel : model, contextK, key }, 'AI 配置已保存。')}>保存配置</button>
+        {models.length > 0 && <small>已读取 {models.length} 个模型；接口提供上下文长度时，选择模型会自动填入。</small>}
         <label>API Key<input type="password" autoComplete="off" required={!current.configured} value={key} placeholder={current.configured ? '********（已保存，留空沿用）' : '请输入 API Key'} onChange={e => setKey(e.target.value)} disabled={busy} /><small>已保存的 Key 不会回传到界面；留空会沿用本机保存的 Key，输入新值可替换。</small></label>
 
         <button className="primary" disabled={busy || current.busy}>{busy ? '正在验证…' : '发送真实截图并验证配置'}</button>
@@ -133,3 +138,7 @@ export function RecognitionTimeline({ state }: { state: Snapshot }) {
     }) : <div className="empty">这段时间没有成功识别记录。<small>空白不代表没有活动，日迹不会补写未知内容。</small></div>}
   </section>;
 }
+
+
+
+

@@ -240,8 +240,21 @@ public sealed class MainWindow : Window
                     var submittedKey = root.TryGetProperty("key", out var keyElement) ? keyElement.GetString() : null;
                     if (string.IsNullOrWhiteSpace(submittedKey) && recognition.Configuration is not null) submittedKey = recognition.ActiveKey();
                     if (string.IsNullOrWhiteSpace(submittedKey)) throw new ArgumentException("首次配置时请填写 API Key。");
-                    await recognition.TestConfiguration(root.GetProperty("endpoint").GetString()!, root.GetProperty("model").GetString()!, submittedKey, 12000, root.TryGetProperty("summaryModel", out var sm) ? sm.GetString() : null);
+                    await recognition.TestConfiguration(root.GetProperty("endpoint").GetString()!, root.GetProperty("model").GetString()!, submittedKey, root.TryGetProperty("contextK", out var ck) ? ck.GetInt32() * 1000 : 100000, root.TryGetProperty("summaryModel", out var sm) ? sm.GetString() : null);
                     Push(); break;
+                case "models":
+                    var modelKey = root.TryGetProperty("key", out var modelKeyElement) ? modelKeyElement.GetString() : null;
+                    if (string.IsNullOrWhiteSpace(modelKey) && recognition.Configuration is not null) modelKey = recognition.ActiveKey();
+                    if (string.IsNullOrWhiteSpace(modelKey)) throw new ArgumentException("请先填写 API Key。");
+                    value = await new HttpAiClient(aiHttp).Models(root.GetProperty("endpoint").GetString()!, modelKey);
+                    break;
+                case "saveAi":
+                    var saveKey = root.TryGetProperty("key", out var saveKeyElement) ? saveKeyElement.GetString() : null;
+                    if (string.IsNullOrWhiteSpace(saveKey) && recognition.Configuration is not null) saveKey = recognition.ActiveKey();
+                    if (string.IsNullOrWhiteSpace(saveKey)) throw new ArgumentException("首次配置时请填写 API Key。");
+                    var saveConfig = new AiConfiguration(root.GetProperty("endpoint").GetString()!, root.GetProperty("model").GetString()!, SecretVault.Protect(saveKey), root.TryGetProperty("contextK", out var saveCk) ? saveCk.GetInt32() * 1000 : 100000, root.TryGetProperty("summaryModel", out var saveSm) ? saveSm.GetString() : null);
+                    if (string.IsNullOrWhiteSpace(saveConfig.Model) || saveConfig.Model.Length > 200 || saveConfig.InputBudget is < 4000 or > 150000) throw new ArgumentException("请填写有效模型和上下文长度。\n");
+                    AiConfiguration.ValidateEndpoint(saveConfig.Endpoint); store.SaveValue("ai-active", saveConfig); recognition.Configuration = saveConfig; Push(); break;
                 case "summaryForm":
                     var form = root.GetProperty("form").Deserialize<SummaryForm>(json) ?? throw new ArgumentException("总结草稿无效。");
                     if (form.Start.Length > 40 || form.End.Length > 40 || form.Prompt.Length > 10000) throw new ArgumentException("草稿内容过长。");

@@ -66,7 +66,7 @@ public sealed class SummaryService
         try
         {
             store.SaveSummary(summary);
-            var evidence = string.Join('\n', summary.Sources.Select(source => JsonSerializer.Serialize(source, PromptJson)));
+            var evidence = SummaryPrompts.CompactEvidence(summary.Sources);
             for (var stage = 0; stage < 8; stage++)
             {
                 var prompts = SummaryPrompts.Batches(summary.Prompt + "\n选定范围：" + JsonSerializer.Serialize(summary.Range, PromptJson)

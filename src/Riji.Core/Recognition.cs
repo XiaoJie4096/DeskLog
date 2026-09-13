@@ -19,7 +19,7 @@ public sealed record Category(string Id, string Name, string Meaning, string Col
     }
 }
 
-public sealed record AiConfiguration(string Endpoint, string Model, string ProtectedKey, int InputBudget = 12000, string? SummaryModel = null)
+public sealed record AiConfiguration(string Endpoint, string Model, string ProtectedKey, int InputBudget = 100000, string? SummaryModel = null)
 {
     public string Identity => Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(Endpoint + "\n" + Model)))[..16];
     public static Uri ValidateEndpoint(string endpoint)
@@ -43,7 +43,7 @@ public sealed record RecognitionJob(string Id, DateTimeOffset Utc, string Day, i
     Category[] Categories, JobStatus Status = JobStatus.Capturing, int Attempts = 0, DateTimeOffset? RetryAt = null,
     string? Error = null, bool CleanupPending = false, string? Prompt = null, RecognitionContext? Context = null);
 public sealed record RecognitionResult(string Description, string CategoryId, double Confidence);
-public sealed record ActivityRecord(string Id, DateTimeOffset Utc, string Day, int Seconds, string Description, Category Category, double Confidence);
+public sealed record ActivityRecord(string Id, DateTimeOffset Utc, string Day, int Seconds, string Description, Category Category, double Confidence, string? AppName = null, string? BrowserTitle = null, string? Website = null);
 public sealed record JobHealth(string Status, int Count);
 public sealed record JobDetail(string Id, DateTimeOffset Utc, JobStatus Status, int Attempts, DateTimeOffset? RetryAt, string? Error, bool CleanupPending);
 public sealed record JobPage(JobDetail[] Items, int Total);

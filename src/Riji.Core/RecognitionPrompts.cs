@@ -3,7 +3,7 @@ using System.Text.Encodings.Web;
 
 namespace Riji.Core;
 
-public sealed record RecognitionContext(string? AppName, string? BrowserTitle)
+public sealed record RecognitionContext(string? AppName, string? BrowserTitle, string? Domain = null)
 {
     // Reject foreground changes and stale browser evidence around screen capture.
     public static RecognitionContext? From(Observation? before, Observation? after)
@@ -14,7 +14,7 @@ public sealed record RecognitionContext(string? AppName, string? BrowserTitle)
         var title = before.Website is { Title: { Length: > 0 } text } first
             && after.Website is { } last && first.Title == last.Title && first.Domain == last.Domain
             && first.ValidUntil > before.MonotonicSeconds && last.ValidUntil > after.MonotonicSeconds ? text : null;
-        return new(before.App.Name, title);
+        return new(before.App.Name, title, title is null ? null : before.Website?.Domain);
     }
 }
 

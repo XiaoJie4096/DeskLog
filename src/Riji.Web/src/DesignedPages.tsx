@@ -35,7 +35,7 @@ export function ApplicationStatistics({ state }: { state: Snapshot }) {
     {state.browserError && <p role="alert">{state.browserError}</p>}
     <div className="stat-grid"><section className="panel"><div className="section-head"><h2>应用使用分布</h2><small>{items.length} 项</small></div>
       <div className="app-list">{items.map(item => <button className="app-row" key={item.key} aria-pressed={item.key === selected?.key} onClick={() => setSelection(item.key)}>
-        <span className="badge">{item.name.slice(0, 2)}</span><span className="app-info"><strong>{item.name}</strong><span className="track"><i style={{ width: `${total ? item.seconds / total * 100 : 0}%` }} /></span></span>
+        <span className="badge">{item.name.slice(0, 2)}</span><span className="app-info"><strong>{item.name}</strong><span className="track"><i style={{ width: `${items[0]?.seconds ? item.seconds / items[0].seconds * 100 : 0}%` }} /></span></span>
         <span className="app-time">{formatTime(item.seconds)}<small>{total ? (item.seconds / total * 100).toFixed(1) : 0}%</small></span>
       </button>)}</div>{!items.length && <p className="empty">这一天还没有应用记录。</p>}
     </section><section className="panel stats-detail">{selected ? <>
