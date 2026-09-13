@@ -64,8 +64,8 @@ public static class SummaryPrompts
         var categoryBlock = sections.Length == 2 ? sections[0].TrimEnd() : "活动分类：";
         var records = (sections.Length == 2 ? sections[1] : evidence).Split('\n', StringSplitOptions.RemoveEmptyEntries);
         var prefix = grounding + instruction.Trim() + "\n以下是电脑活动记录。\n\n" + ReadingRules + "\n" + categoryBlock + "\n\n活动记录：\n";
-        // InputBudget is stored in tokens. For normal production budgets, estimate up to four UTF-8 bytes per token and reserve 20% for provider tokenization/output. The small-budget path keeps legacy 4K test/config behavior predictable.
-        var byteBudget = inputBudget >= 10000 ? (long)(inputBudget * 0.8) * 4 : inputBudget;
+        // InputBudget is stored in tokens. For normal production budgets, estimate up to three UTF-8 bytes per token and reserve 20% for provider tokenization/output. The small-budget path keeps legacy 4K test/config behavior predictable.
+        var byteBudget = inputBudget >= 10000 ? (long)(inputBudget * 0.8) * 3 : inputBudget;
         var available = byteBudget - 512 - Encoding.UTF8.GetByteCount(prefix);
         if (available < 512) throw new ArgumentException("提示词太长，请缩短提示词或提高输入预算。");
         var chunks = new List<string>(); var builder = new StringBuilder(); long size = 0;
