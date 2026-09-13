@@ -1,6 +1,6 @@
-# 日迹 Windows 0.1.0
+# 日迹 Windows 0.1.1
 
-使用 DeskLog-Setup-v0.1.0.exe 安装。需要 Windows x64 和 Microsoft Edge WebView2 Runtime；缺少后者可运行 install-webview2.ps1。安装器内已包含 .NET 运行时。
+使用 DeskLog-Setup-v0.1.1.exe 安装。需要 Windows x64 和 Microsoft Edge WebView2 Runtime；缺少后者可运行 install-webview2.ps1。安装器内已包含 .NET 运行时。
 
 本包默认使用正式数据目录 %LOCALAPPDATA%\Riji\Production，与源码开发版分开。关闭窗口会隐藏到托盘，完全退出请在设置中操作。
 
