@@ -17,6 +17,7 @@ namespace Riji.Desktop;
 public sealed class MainWindow : Window
 {
     [DllImport("dwmapi.dll")] private static extern int DwmSetWindowAttribute(nint hwnd, int attribute, ref int value, int size);
+    [DllImport("user32.dll")] private static extern bool SetForegroundWindow(nint hwnd);
     private const int DwmUseImmersiveDarkMode = 20, DwmCaptionColor = 35;
     private readonly WebView2 web = new();
     private readonly LocalStore store;
@@ -92,12 +93,17 @@ public sealed class MainWindow : Window
         timer.Tick += (_, _) => Tick();
         tray = new() { Icon = new System.Drawing.Icon(Path.Combine(AppContext.BaseDirectory, "riji.ico")), Text = "日迹 · 正在记录", Visible = true };
         var menu = new System.Windows.Forms.ContextMenuStrip();
-        menu.Items.Add("打开日迹", null, (_, _) => Dispatcher.Invoke(() => { Show(); WindowState = WindowState.Normal; Activate(); }));
+        menu.Items.Add("打开日迹", null, (_, _) => Dispatcher.Invoke(ShowMainWindow));
         menu.Items.Add("立即恢复", null, (_, _) => Dispatcher.Invoke(() => ChangeMode(RecordingMode.Default, null)));
         menu.Items.Add("离开", null, (_, _) => Dispatcher.Invoke(() => ChangeMode(RecordingMode.Away, null)));
         menu.Items.Add("退出日迹", null, (_, _) => Dispatcher.Invoke(Exit));
         tray.ContextMenuStrip = menu;
-        tray.DoubleClick += (_, _) => Dispatcher.Invoke(() => { Show(); Activate(); });
+        tray.MouseClick += (_, e) =>
+        {
+            if (e.Button == System.Windows.Forms.MouseButtons.Left)
+                Dispatcher.BeginInvoke(ShowMainWindow);
+        };
+        tray.DoubleClick += (_, _) => Dispatcher.BeginInvoke(ShowMainWindow);
         Content = web;
         SourceInitialized += (_, _) =>
         {
@@ -109,6 +115,16 @@ public sealed class MainWindow : Window
         Loaded += async (_, _) => await InitializeWeb();
         Closing += (_, e) => { if (!exiting) { e.Cancel = true; Hide(); } };
         Closed += (_, _) => Cleanup();
+    }
+
+    private void ShowMainWindow()
+    {
+        if (exiting) return;
+        if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal;
+        Show();
+        Activate();
+        var handle = new WindowInteropHelper(this).Handle;
+        if (handle != nint.Zero) SetForegroundWindow(handle);
     }
 
     // Load only bundled content, with a dedicated WebView profile and restricted message origin.
