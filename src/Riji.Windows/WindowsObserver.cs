@@ -15,6 +15,11 @@ public sealed class WindowsObserver : IDisposable
     private readonly nint keyboardHook;
     private readonly nint mouseHook;
     private readonly nint foregroundHook;
+    private readonly System.Threading.Timer gamepadTimer;
+    private readonly GamepadSample[] gamepads = [new(), new(), new(), new()];
+    private int gamepadPollMode;
+    private int disposed;
+    private bool gamepadSupported = true;
     private double lastInput;
     private readonly InputActivity inputActivity;
     private nint lastWindow;
@@ -40,6 +45,7 @@ public sealed class WindowsObserver : IDisposable
         keyboardHook = Native.SetWindowsHookEx(13, keyboardCallback, module, 0);
         mouseHook = Native.SetWindowsHookEx(14, mouseCallback, module, 0);
         foregroundHook = Native.SetWinEventHook(3, 3, 0, foregroundCallback, 0, 0, 0);
+        gamepadTimer = new(PollGamepads, null, TimeSpan.Zero, TimeSpan.FromSeconds(2));
     }
 
     public Observation Capture()
@@ -115,9 +121,62 @@ public sealed class WindowsObserver : IDisposable
 
     public void Dispose()
     {
+        if (Interlocked.Exchange(ref disposed, 1) == 0) gamepadTimer.Dispose();
         if (keyboardHook != 0) Native.UnhookWindowsHookEx(keyboardHook);
         if (mouseHook != 0) Native.UnhookWindowsHookEx(mouseHook);
         if (foregroundHook != 0) Native.UnhookWinEvent(foregroundHook);
+    }
+
+    private void PollGamepads(object? _)
+    {
+        if (Volatile.Read(ref disposed) != 0 || !gamepadSupported) return;
+        var connected = false;
+        try
+        {
+            for (uint index = 0; index < gamepads.Length; index++)
+            {
+                var result = Native.XInputGetState(index, out var state);
+                if (result != 0) { gamepads[index].Connected = false; continue; }
+                connected = true;
+                var sample = gamepads[index];
+                var active = IsMeaningful(state.Gamepad);
+                var changed = sample.Connected && active && state.PacketNumber != sample.Packet &&
+                    (!sample.Active || sample.Buttons != state.Gamepad.Buttons ||
+                     Math.Abs(sample.LeftX - state.Gamepad.LeftThumbX) >= 8000 || Math.Abs(sample.LeftY - state.Gamepad.LeftThumbY) >= 8000 ||
+                     Math.Abs(sample.RightX - state.Gamepad.RightThumbX) >= 8000 || Math.Abs(sample.RightY - state.Gamepad.RightThumbY) >= 8000 ||
+                     Math.Abs(sample.LeftTrigger - state.Gamepad.LeftTrigger) >= 30 || Math.Abs(sample.RightTrigger - state.Gamepad.RightTrigger) >= 30);
+                if (changed) lastInput = Monotonic;
+                sample.Connected = true; sample.Active = active;
+                sample.Packet = state.PacketNumber;
+                sample.Buttons = state.Gamepad.Buttons;
+                sample.LeftX = state.Gamepad.LeftThumbX; sample.LeftY = state.Gamepad.LeftThumbY;
+                sample.RightX = state.Gamepad.RightThumbX; sample.RightY = state.Gamepad.RightThumbY;
+                sample.LeftTrigger = state.Gamepad.LeftTrigger; sample.RightTrigger = state.Gamepad.RightTrigger;
+            }
+        }
+        catch (DllNotFoundException)
+        {
+            gamepadSupported = false;
+            return;
+        }
+        var desired = connected ? 1 : 0;
+        if (Interlocked.Exchange(ref gamepadPollMode, desired) != desired)
+            gamepadTimer.Change(connected ? TimeSpan.FromMilliseconds(50) : TimeSpan.FromSeconds(2), connected ? TimeSpan.FromMilliseconds(50) : TimeSpan.FromSeconds(2));
+    }
+
+    private static bool IsMeaningful(Native.XInputGamepad gamepad)
+        => gamepad.Buttons != 0 || gamepad.LeftTrigger >= 30 || gamepad.RightTrigger >= 30
+            || Math.Abs(gamepad.LeftThumbX) >= 8000 || Math.Abs(gamepad.LeftThumbY) >= 8000
+            || Math.Abs(gamepad.RightThumbX) >= 8000 || Math.Abs(gamepad.RightThumbY) >= 8000;
+
+    private sealed class GamepadSample
+    {
+        public bool Connected;
+        public bool Active;
+        public uint Packet;
+        public ushort Buttons;
+        public short LeftX, LeftY, RightX, RightY;
+        public byte LeftTrigger, RightTrigger;
     }
 
     private static class Native
@@ -141,5 +200,8 @@ public sealed class WindowsObserver : IDisposable
         [DllImport("user32.dll")] internal static extern nint OpenInputDesktop(uint flags, bool inherit, uint access);
         [DllImport("user32.dll")] internal static extern bool CloseDesktop(nint desktop);
         [DllImport("user32.dll", CharSet = CharSet.Unicode)] internal static extern bool GetUserObjectInformation(nint handle, int index, StringBuilder value, int length, out int needed);
+        [StructLayout(LayoutKind.Sequential)] internal struct XInputState { internal uint PacketNumber; internal XInputGamepad Gamepad; }
+        [StructLayout(LayoutKind.Sequential)] internal struct XInputGamepad { internal ushort Buttons; internal byte LeftTrigger, RightTrigger; internal short LeftThumbX, LeftThumbY, RightThumbX, RightThumbY; }
+        [DllImport("xinput1_4.dll", EntryPoint = "XInputGetState", CallingConvention = CallingConvention.StdCall)] internal static extern uint XInputGetState(uint userIndex, out XInputState state);
     }
 }
