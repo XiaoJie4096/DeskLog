@@ -159,6 +159,12 @@ public sealed class WindowsObserver : IDisposable
             gamepadSupported = false;
             return;
         }
+        catch (Exception)
+        {
+            // A controller driver must never be able to terminate the recorder.
+            // Keep the existing timer alive and retry on the next poll.
+            return;
+        }
         var desired = connected ? 1 : 0;
         if (Interlocked.Exchange(ref gamepadPollMode, desired) != desired)
             gamepadTimer.Change(connected ? TimeSpan.FromMilliseconds(50) : TimeSpan.FromSeconds(2), connected ? TimeSpan.FromMilliseconds(50) : TimeSpan.FromSeconds(2));
@@ -166,8 +172,8 @@ public sealed class WindowsObserver : IDisposable
 
     private static bool IsMeaningful(Native.XInputGamepad gamepad)
         => gamepad.Buttons != 0 || gamepad.LeftTrigger >= 30 || gamepad.RightTrigger >= 30
-            || Math.Abs(gamepad.LeftThumbX) >= 8000 || Math.Abs(gamepad.LeftThumbY) >= 8000
-            || Math.Abs(gamepad.RightThumbX) >= 8000 || Math.Abs(gamepad.RightThumbY) >= 8000;
+            || Math.Abs((int)gamepad.LeftThumbX) >= 8000 || Math.Abs((int)gamepad.LeftThumbY) >= 8000
+            || Math.Abs((int)gamepad.RightThumbX) >= 8000 || Math.Abs((int)gamepad.RightThumbY) >= 8000;
 
     private sealed class GamepadSample
     {
