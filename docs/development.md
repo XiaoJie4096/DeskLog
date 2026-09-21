@@ -34,7 +34,7 @@
 ./scripts/build-stable-release.ps1
 ```
 
-输出为 `artifacts/releases/DeskLog-Setup-v0.1.1.exe`。安装器使用固定应用标识，升级沿用安装目录；安装前要求日迹退出，不自动创建数据备份。安装目录包含 `extensions/chrome-edge` 和 `extensions/firefox` 两个未打包扩展目录。
+输出为 `artifacts/releases/DeskLog-Setup-v0.1.2.exe`。安装器使用固定应用标识，升级沿用安装目录；安装前要求日迹退出，不自动创建数据备份。安装目录包含 `extensions/chrome-edge` 和 `extensions/firefox` 两个未打包扩展目录。
 
 使用 `scripts/build-private-production-test.ps1` 可生成只在本机或私有渠道使用的正式数据测试安装器，例如 `DeskLog-Setup-Private-v0.1.0.9001.exe`。它与稳定版使用相同的应用标识、安装目录和 `%LOCALAPPDATA%\Riji\Production` 数据目录，会覆盖当前安装程序文件但保留数据。稳定版安装器允许从测试版本降级覆盖回来。私有测试包不应上传到公开 Release。
 
