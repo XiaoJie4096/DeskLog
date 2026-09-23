@@ -29,4 +29,14 @@ select { background: var(--bg); color: inherit; border: 1px solid var(--line); p
 .hour-group .section-head { flex-wrap: wrap; }
 .hour-group h3 { font-size: 14px; font-weight: 500; }
 .hour-group .section-head span { color: var(--muted); font-size: 12px; }
+.hour-heading { justify-content: flex-start; gap: 12px; }
+.hour-heading button { margin-left: auto; }
 .hour-group summary { cursor: pointer; color: var(--muted); font-size: 12px; }
+.hour-group .hour-records .recognition-timeline li { grid-template-columns: 54px 1fr; gap: 10px; padding: 10px 0; }
+.hour-group .hour-records .category-label { display: inline-block; margin: 2px 0; font-size: 11px; }
+.hour-group .hour-records .recognition-timeline p { margin: 4px 0; }
+.hour-group .hour-records .recognition-timeline small { font-size: 10px; }
+@media (max-width: 600px) {
+  .hour-heading { display: grid; grid-template-columns: auto 1fr auto; gap: 8px; }
+  .hour-heading h3 { white-space: nowrap; }
+}

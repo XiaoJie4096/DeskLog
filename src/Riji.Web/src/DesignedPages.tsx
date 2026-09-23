@@ -6,7 +6,7 @@ export const formatTime = (seconds: number) => {
   const total = Math.max(0, Math.floor(seconds));
   if (total < 60) return `${total} 秒`;
   const hours = Math.floor(total / 3600), minutes = Math.floor(total % 3600 / 60);
-  return hours ? `${hours} 小时${minutes ? ` ${minutes} 分钟` : ''}` : `${minutes} 分钟`;
+  return hours ? `${hours} 时${minutes ? ` ${minutes} 分` : ''}` : `${minutes} 分`;
 };
 const clock = (utc: string) => new Date(utc).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false });
 
