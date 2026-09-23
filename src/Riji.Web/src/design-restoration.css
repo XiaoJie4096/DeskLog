@@ -26,11 +26,13 @@
 .date-picker{align-items:center;flex-wrap:wrap}.date-picker>span{font-size:12px;color:var(--muted)}
 .review-summary{display:flex;gap:45px;padding:20px 0 25px;border-bottom:1px solid var(--line)}
 .review-summary strong{display:block;margin-top:7px;font-size:20px;color:var(--accent)}
-.hour-overview{font-size:13px}.hour-categories{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 8px}
+.hour-overview{font-size:13px}.hour-categories{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:10px 0 8px}
 .hour-placeholder{padding:8px 10px;border-left:2px solid var(--line);border-radius:0 4px 4px 0;background:var(--bg);color:var(--muted);font-size:12px;margin:8px 0}.hour-overview .summary-text{margin:8px 0}
 .hour-categories span{font-size:11px;border-radius:4px;padding:4px 9px;background:var(--soft);color:var(--muted)}
 .review-timeline{background:none;border:0;padding:0}.hour-group{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin:10px 0}
-.hour-heading{justify-content:flex-start;gap:12px}.hour-heading button{margin-left:auto}.hour-group .hour-placeholder{max-width:100%}.hour-group .hour-overview .summary-text{margin:8px 0;line-height:1.75}
+.hour-group .hour-heading{justify-content:flex-start;gap:12px}.hour-group .hour-heading h3,.hour-group .hour-heading>span{flex:0 0 auto}.hour-group .hour-heading>button{margin-left:auto}.hour-group .hour-placeholder{max-width:100%}.hour-group .hour-overview .summary-text{margin:8px 0;line-height:1.75}.hour-generated{margin-left:auto;font-size:10px;white-space:nowrap}
+.hour-group .hour-categories{align-items:center}.hour-group .hour-records .recognition-timeline li{grid-template-columns:54px minmax(0,1fr);gap:10px;padding:8px 0}.hour-group .hour-records .recognition-timeline li>div{display:flex;flex-direction:column;align-items:flex-start;min-width:0}.hour-group .hour-records .category-label{display:inline-block;width:max-content;margin:0 0 3px;font-size:11px}.hour-group .hour-records .recognition-timeline p{margin:2px 0}.hour-group .hour-records .recognition-timeline small{font-size:10px}
+@media(max-width:600px){.hour-group .hour-heading{display:grid;grid-template-columns:auto 1fr auto;gap:8px}.hour-group .hour-heading h3{white-space:nowrap}}
 .hour-group details summary{cursor:pointer;color:var(--muted);font-size:12px}
 .segmented{display:inline-flex;gap:3px;background:var(--bg);padding:4px;border:1px solid var(--line);border-radius:8px;flex-wrap:wrap}
 .segmented button{border:0}.segmented button[aria-pressed=true],.presets button[aria-pressed=true]{background:var(--soft);color:var(--accent)}
