@@ -7,7 +7,8 @@ public sealed record Observation(DateTimeOffset Utc, double MonotonicSeconds, Ap
 public sealed record TrackingSettings(bool AutoRecord = true, bool AppTiming = true, int IdleSeconds = 120,
     bool DesktopAutoAway = true,
     string Theme = "dark", bool WebsiteTitles = true, bool FollowSystemTheme = true, bool StartWithWindows = true, WebsiteRule[]? WebsiteRules = null, bool WebsiteSnippets = false,
-    WebsiteProject[]? WebsiteProjects = null, int HourlyMinimumMinutes = 12, string? HourlyPrompt = null);
+    WebsiteProject[]? WebsiteProjects = null, int HourlyMinimumMinutes = 12, string? HourlyPrompt = null,
+    bool NightMode = false, int DayStartHour = 5, bool ExtendedHours = false);
 public sealed record ModeState(RecordingMode Mode = RecordingMode.Default, DateTimeOffset? Until = null,
     DateTimeOffset? CooldownUntil = null);
 public sealed record ActivitySlice(string Id, string Session, string AppId, string AppName, string Day,
@@ -52,6 +53,8 @@ public sealed class Tracker
             throw new ArgumentException("自动摘要门槛应为 1–60 分钟，提示词不能为空且最多 10000 字。");
         if (value.IdleSeconds is < 30 or > 3600 || value.Theme is not ("dark" or "light"))
             throw new ArgumentException("空闲时间应为 1–3600 秒，主题应为深色或浅色。");
+        if (value.DayStartHour is < 1 or > 9)
+            throw new ArgumentException("新一天的起点应为 01:00–09:00 的整点。");
     }
 
     // Attribute elapsed time to the last observed foreground application.

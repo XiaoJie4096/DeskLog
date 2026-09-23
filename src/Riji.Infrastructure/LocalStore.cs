@@ -8,6 +8,7 @@ namespace Riji.Infrastructure;
 public sealed record AppTotal(string AppId, string Name, double Seconds);
 public sealed record DayTotal(string Day, double Seconds, int RecordCount = 0, double SampleSeconds = 0);
 public sealed record WebsiteTotal(string AppId, string Domain, string? Title, double Seconds, string? Snippet = null, string? AppName = null, string? SourceAppName = null);
+public sealed record DayView(List<AppTotal> Apps, List<WebsiteTotal> Websites, List<ActivityRecord> Records);
 
 // Own one database connection on the host thread; all writes are transactional.
 public sealed partial class LocalStore : IDisposable
@@ -113,6 +114,94 @@ public sealed partial class LocalStore : IDisposable
         List<AppTotal> rows = [];
         while (reader.Read()) rows.Add(new(reader.GetString(0), reader.GetString(1), reader.GetDouble(2)));
         return rows;
+    }
+
+    public DayView ViewDay(string day, TrackingSettings settings, TimeZoneInfo zone)
+    {
+        var (start, end) = DayRange.Bounds(day, settings, zone);
+        if (!settings.NightMode) return new(Apps(day), Websites(day), Records(day));
+
+        var apps = new Dictionary<(string Id, string Name), double>();
+        var sites = new Dictionary<(string AppId, string AppName, string SourceName, string Domain, string? Title, string? Snippet), double>();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT a.app_id,a.app_name,a.source_app_name,a.start_utc,a.end_utc,a.seconds,
+                   w.domain,w.title,w.snippet,w.seconds,a.id
+            FROM activity a LEFT JOIN websites w ON w.parent_id=a.id
+            WHERE julianday(a.start_utc)<julianday($end) AND julianday(a.end_utc)>julianday($start)
+            ORDER BY a.start_utc
+            """;
+        command.Parameters.AddWithValue("$start", start.ToString("O"));
+        command.Parameters.AddWithValue("$end", end.ToString("O"));
+        using var reader = command.ExecuteReader();
+        var counted = new HashSet<string>();
+        while (reader.Read())
+        {
+            var sliceStart = reader.GetString(3); var sliceEnd = reader.GetString(4);
+            var sliceId = reader.GetString(10);
+            var from = DateTimeOffset.Parse(sliceStart); var to = DateTimeOffset.Parse(sliceEnd);
+            var fraction = OverlapFraction(from, to, start, end);
+            if (counted.Add(sliceId))
+            {
+                var key = (reader.GetString(0), reader.GetString(1));
+                apps[key] = apps.GetValueOrDefault(key) + reader.GetDouble(5) * fraction;
+            }
+            if (reader.IsDBNull(6)) continue;
+            var siteKey = (reader.GetString(0), reader.GetString(1), reader.IsDBNull(2) ? reader.GetString(1) : reader.GetString(2),
+                reader.GetString(6), reader.IsDBNull(7) ? null : reader.GetString(7), reader.IsDBNull(8) ? null : reader.GetString(8));
+            sites[siteKey] = sites.GetValueOrDefault(siteKey) + reader.GetDouble(9) * fraction;
+        }
+        return new(apps.Select(x => new AppTotal(x.Key.Id, x.Key.Name, x.Value)).OrderByDescending(x => x.Seconds).ToList(),
+            sites.Select(x => new WebsiteTotal(x.Key.AppId, x.Key.Domain, x.Key.Title, x.Value, x.Key.Snippet, x.Key.AppName, x.Key.SourceName))
+                .OrderByDescending(x => x.Seconds).ToList(), Records(start, end));
+    }
+
+    private static double OverlapFraction(DateTimeOffset from, DateTimeOffset to, DateTimeOffset start, DateTimeOffset end)
+    {
+        var duration = (to - from).TotalSeconds;
+        var overlapStart = from > start ? from : start;
+        var overlapEnd = to < end ? to : end;
+        return duration <= 0 ? 0 : Math.Clamp((overlapEnd - overlapStart).TotalSeconds / duration, 0, 1);
+    }
+
+    public List<DayTotal> Days(TrackingSettings settings, TimeZoneInfo zone)
+    {
+        if (!settings.NightMode) return Days();
+        var totals = new Dictionary<string, (double Apps, int Records, double Samples)>();
+        using (var command = connection.CreateCommand())
+        {
+            command.CommandText = "SELECT start_utc,end_utc,seconds FROM activity";
+            using var reader = command.ExecuteReader();
+            while (reader.Read())
+            {
+                var from = DateTimeOffset.Parse(reader.GetString(0)); var to = DateTimeOffset.Parse(reader.GetString(1));
+                var originalFrom = from;
+                var day = DayRange.Today(from, settings, zone);
+                while (from < to)
+                {
+                    var (_, boundary) = DayRange.Bounds(day, settings, zone);
+                    var stop = to < boundary ? to : boundary;
+                    var part = reader.GetDouble(2) * OverlapFraction(originalFrom, to, from, stop);
+                    var total = totals.GetValueOrDefault(day);
+                    totals[day] = (total.Apps + part, total.Records, total.Samples);
+                    from = stop;
+                    day = DateOnly.ParseExact(day, "yyyy-MM-dd").AddDays(1).ToString("yyyy-MM-dd");
+                }
+            }
+        }
+        using (var command = connection.CreateCommand())
+        {
+            command.CommandText = "SELECT utc,seconds FROM records";
+            using var reader = command.ExecuteReader();
+            while (reader.Read())
+            {
+                var day = DayRange.Today(DateTimeOffset.Parse(reader.GetString(0)), settings, zone);
+                var total = totals.GetValueOrDefault(day);
+                totals[day] = (total.Apps, total.Records + 1, total.Samples + reader.GetInt32(1));
+            }
+        }
+        return totals.Select(x => new DayTotal(x.Key, x.Value.Apps, x.Value.Records, x.Value.Samples))
+            .OrderByDescending(x => x.Day).ToList();
     }
 
     public List<DayTotal> Days()

@@ -70,6 +70,7 @@ public sealed class MainWindow : Window
         Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(23, 27, 27));
         store = new(Path.Combine(dataDir, "riji.db"));
         tracker = new((store.Read<TrackingSettings>("settings") ?? new()) with { WebsiteSnippets = false }, store.Read<ModeState>("mode") ?? new(), TimeZoneInfo.Local);
+        selectedDay = DayRange.Today(DateTimeOffset.Now, tracker.Settings, TimeZoneInfo.Local);
         SetStartup(tracker.Settings.StartWithWindows);
         observer = new();
         InitializePipelines();
@@ -238,7 +239,9 @@ public sealed class MainWindow : Window
                 case "settings":
                     var settings = root.GetProperty("settings").Deserialize<TrackingSettings>(json) ?? throw new ArgumentException("设置无效。");
                     settings = settings with { WebsiteSnippets = false, WebsiteRules = null };
+                    var dayRulesChanged = settings.NightMode != tracker.Settings.NightMode || settings.DayStartHour != tracker.Settings.DayStartHour;
                     tracker.Configure(settings, Capture());
+                    if (dayRulesChanged) selectedDay = DayRange.Today(DateTimeOffset.Now, tracker.Settings, TimeZoneInfo.Local);
                     SetStartup(settings.StartWithWindows);
                     ApplyTitleBarTheme(settings.Theme);
                     tracker.Observe(Capture());
@@ -323,19 +326,21 @@ public sealed class MainWindow : Window
         if (!ready) return;
         try
         {
-            Send(new { type = "snapshot", day = selectedDay, today = DateTime.Now.ToString("yyyy-MM-dd"),
+            var today = DayRange.Today(DateTimeOffset.Now, tracker.Settings, TimeZoneInfo.Local);
+            var view = store.ViewDay(selectedDay, tracker.Settings, TimeZoneInfo.Local);
+            Send(new { type = "snapshot", day = selectedDay, today,
                 settings = tracker.Settings, mode = tracker.State, currentApp = tracker.CurrentApp?.Name,
                 dataStatus, maintenance, diagnosticLogFailed = diagnosticLog.WriteFailed,
                 health = storageError ?? (observer.HooksAvailable ? tracker.Health : "输入或前台事件钩子不可用，请重启检查权限"),
-                apps = store.Apps(selectedDay), websites = store.Websites(selectedDay), browserConnections = browserSessions.Connections(observer.Capture().MonotonicSeconds), browserError = browser?.Error,
+                apps = view.Apps, websites = view.Websites, browserConnections = browserSessions.Connections(observer.Capture().MonotonicSeconds), browserError = browser?.Error,
                 recognition = new { settings = recognition.Settings, defaultPrompt = RecognitionPrompts.Default, categories = recognition.Categories, busy = recognition.Busy, paused = recognition.Paused,
                     error = recognition.Error, configured = recognition.Configuration is not null, endpoint = recognition.Configuration?.Endpoint, model = recognition.Configuration?.Model, summaryModel = recognition.Configuration?.SummaryModel ?? recognition.Configuration?.Model,
-                    jobs = store.JobCounts(), latestSample = store.LatestRecognizedSample(), records = store.Records(selectedDay) },
+                    jobs = store.JobCounts(), latestSample = store.LatestRecognizedSample(), records = view.Records },
                 hourlyDefaultPrompt = HourlySummaryService.Prompt,
                 hourlySummaryError = hourlySummaries.Error, summaryBusy = summaries.Busy, summaryForm = store.Read<SummaryForm>("summary-form"),
                 summaryPresets = store.Read<PromptPreset[]>("summary-presets") ?? PromptPreset.Defaults,
                 summaries = store.SummaryHeaders(),
-                days = store.Days(), profile, dataPath = store.Path, savedAt = DateTimeOffset.UtcNow,
+                days = store.Days(tracker.Settings, TimeZoneInfo.Local), profile, dataPath = store.Path, savedAt = DateTimeOffset.UtcNow,
                 recording = tracker.IsTimingActive, timingStatus = tracker.TimingStatus });
             tray.Text = "日迹 · " + (tracker.State.Mode == RecordingMode.Away ? "离开" : "运行中");
         }

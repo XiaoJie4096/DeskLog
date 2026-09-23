@@ -1,11 +1,11 @@
 export type Mode = 'Default' | 'Away' | 'Locked' | 'NoScreen';
-export type Settings = { hourlyMinimumMinutes: number; hourlyPrompt?: string | null; autoRecord: boolean; appTiming: boolean; idleSeconds: number; desktopAutoAway: boolean; theme: 'dark' | 'light'; websiteTitles: boolean; followSystemTheme: boolean; startWithWindows: boolean; websiteSnippets: boolean; websiteProjects?: { id: string; name: string; domains: string[] }[] | null; websiteRules?: { domain: string; allow: boolean }[] | null };
+export type Settings = { hourlyMinimumMinutes: number; hourlyPrompt?: string | null; autoRecord: boolean; appTiming: boolean; idleSeconds: number; desktopAutoAway: boolean; theme: 'dark' | 'light'; websiteTitles: boolean; followSystemTheme: boolean; startWithWindows: boolean; websiteSnippets: boolean; websiteProjects?: { id: string; name: string; domains: string[] }[] | null; websiteRules?: { domain: string; allow: boolean }[] | null; nightMode: boolean; dayStartHour: number; extendedHours: boolean };
 export type Category = { id: string; name: string; meaning: string; color: string; enabled: boolean };
 export type CaptureSettings = { enabled: boolean; intervalSeconds: number; keepImages: boolean; maxAttempts: number; prompt?: string | null };
 export type GenerationState = 'Running' | 'Succeeded' | 'Failed' | 'Cancelled';
 export type SummaryForm = { start: string; end: string; prompt: string };
 export type PromptPreset = { id: string; name: string; prompt: string };
-export type JobPage = { total: number; items: { id: string; utc: string; status: string; attempts: number; retryAt: string | null; error: string | null; cleanupPending: boolean }[] };
+export type JobPage = { total: number; items: { id: string; utc: string; status: string; attempts: number; retryAt: string | null; error: string | null; cleanupPending: boolean; waitForConnection: boolean }[] };
 export type SummaryHeader = { id: string; range: { start: string; end: string; zoneId: string }; created: string; state: GenerationState; error: string | null; sourceCount: number; completedBatches: number; hourly?: boolean; automatic?: boolean; text?: string | null };
 export type SummaryDocument = Omit<SummaryHeader, 'sourceCount' | 'completedBatches'> & { dataCutoff: string; prompt: string; text: string | null; chatDraft: string;
   sources: { id: string; utc: string; seconds: number; description: string; category: Category }[];

@@ -1,4 +1,5 @@
 import type { Snapshot, SummaryHeader } from './bridge';
+import { dayBounds } from './day-time.ts';
 
 // Failed replacements keep the last successful text visible.
 export function selectHourlySummary(summaries: SummaryHeader[], start: number) {
@@ -20,15 +21,19 @@ export function categoryTotals(records: Snapshot['recognition']['records']) {
 }
 
 // Use daily totals only for whole local days; partial days need actual samples.
-export function previewRange(state: Pick<Snapshot, 'day' | 'days' | 'recognition'>, startText: string, endText: string) {
+export function previewRange(state: Pick<Snapshot, 'day' | 'days' | 'recognition'> & Partial<Pick<Snapshot, 'settings'>>, startText: string, endText: string) {
   const start = new Date(startText), end = new Date(endText);
   if (!Number.isFinite(+start) || !Number.isFinite(+end) || start >= end) return null;
-  const cursor = new Date(start); cursor.setHours(0, 0, 0, 0);
+  const settings = state.settings ?? { nightMode: false, dayStartHour: 5 };
+  const first = new Date(start);
+  if (settings.nightMode && first.getHours() < settings.dayStartHour) first.setDate(first.getDate() - 1);
+  const firstDay = first.toLocaleDateString('sv-SE');
+  let cursor = dayBounds(firstDay, settings).start;
   let count = 0, seconds = 0, iterations = 0;
   while (cursor < end) {
     if (++iterations > 3660) return null;
-    const next = new Date(cursor); next.setDate(next.getDate() + 1);
     const day = cursor.toLocaleDateString('sv-SE');
+    const next = dayBounds(day, settings).end;
     if (day === state.day) {
       const records = state.recognition.records.filter(r => +new Date(r.utc) >= +start && +new Date(r.utc) < +end);
       count += records.length; seconds += records.reduce((n, r) => n + r.seconds, 0);
@@ -36,7 +41,7 @@ export function previewRange(state: Pick<Snapshot, 'day' | 'days' | 'recognition
       const totals = state.days.find(d => d.day === day);
       count += totals?.recordCount ?? 0; seconds += totals?.sampleSeconds ?? 0;
     } else return null;
-    cursor.setDate(cursor.getDate() + 1);
+    cursor = next;
   }
   return { count, seconds };
 }

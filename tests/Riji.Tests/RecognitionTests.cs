@@ -116,12 +116,12 @@ public sealed class RecognitionTests
         using var pipeline = fixture.Pipeline(handler);
         Assert.Equal("历史合成记录", Assert.Single(fixture.Store.Records("2026-09-10")).Description);
         pipeline.Configure(new(true), Epoch); await pipeline.Pulse(Epoch.AddSeconds(60));
-        Assert.Contains("详细原因已写入", pipeline.Error);
+        Assert.Contains("创建截图目录失败", pipeline.Error);
         var report = File.ReadAllText(Directory.GetFiles(Path.Combine(fixture.Folder, "Logs"), "recognition-failure-*.html").Single());
         Assert.Contains("创建截图目录", report);
         Assert.Contains("IOException", report);
         Assert.False(pipeline.Busy); Assert.Equal(0, handler.Calls);
-        Assert.Single(fixture.Store.Jobs(JobStatus.Manual));
+        Assert.Single(fixture.Store.Jobs(JobStatus.Invalid));
         Assert.Single(fixture.Store.Records("2026-09-10"));
         File.Delete(Path.Combine(fixture.Folder, "Screenshots"));
         await pipeline.Pulse(Epoch.AddSeconds(120));
@@ -135,7 +135,7 @@ public sealed class RecognitionTests
         var handler = new Handler(_ => IncompleteReply("length", "provider said test-key was rejected"));
         using var pipeline = fixture.Pipeline(handler); pipeline.Configure(new(true, Prompt: "识别活动"), Epoch);
         await pipeline.Pulse(Epoch.AddSeconds(60));
-        Assert.Contains("详细原因已写入", pipeline.Error);
+        Assert.Contains("finish_reason=length", pipeline.Error);
         var report = File.ReadAllText(Assert.Single(Directory.GetFiles(Path.Combine(fixture.Folder, "Logs"), "recognition-failure-*.html")));
         Assert.Contains("识别时的截图", report); Assert.Contains("识别活动", report);
         Assert.Contains("finish_reason", report); Assert.Contains("length", report);
@@ -188,7 +188,7 @@ public sealed class RecognitionTests
         Assert.Equal(2, records.Count(record => record.Seconds == 120));
     }
 
-    [Fact] public async Task KeepImagesRetainsSuccessfulAndFailedReferencedImages()
+    [Fact] public async Task ExpiredFailureRemovesImageEvenWhenSuccessfulImagesAreKept()
     {
         using var fixture = new Fixture(); var handler = new Handler(call => call == 2 ? new(HttpStatusCode.ServiceUnavailable) : Success());
         using var pipeline = fixture.Pipeline(handler); pipeline.Configure(new(true, KeepImages: true), Epoch);
@@ -199,7 +199,65 @@ public sealed class RecognitionTests
         pipeline.Configure(new(false, KeepImages: true), Epoch.AddMinutes(3));
         pipeline.RetryFailed(); await pipeline.Pulse(Epoch.AddDays(40));
         Assert.Equal(2, handler.Calls);
-        Assert.Equal(2, Directory.GetFiles(Path.Combine(fixture.Folder, "Screenshots")).Length);
+        Assert.Single(Directory.GetFiles(Path.Combine(fixture.Folder, "Screenshots")));
+        Assert.Single(fixture.Store.Jobs(JobStatus.Invalid));
+        Assert.Empty(fixture.Store.Jobs(JobStatus.Retry));
+        Assert.Equal(0, fixture.Store.UnfinishedJobs(0).Total);
+        Assert.DoesNotContain(fixture.Store.JobCounts(), item => item.Status == "Invalid");
+    }
+
+    private sealed class NetworkHandler : HttpMessageHandler
+    {
+        public bool Connected;
+        public int Requests;
+        public int Probes;
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            if (request.Method == HttpMethod.Head)
+            {
+                Probes++;
+                return Connected ? Task.FromResult(new HttpResponseMessage(HttpStatusCode.MethodNotAllowed))
+                    : Task.FromException<HttpResponseMessage>(new HttpRequestException("offline"));
+            }
+            Requests++;
+            return Connected ? Task.FromResult(Success()) : Task.FromException<HttpResponseMessage>(new HttpRequestException("offline"));
+        }
+    }
+
+    [Fact] public async Task NetworkFailureWaitsForConnectionAndRetriesOnceWhenReachable()
+    {
+        using var fixture = new Fixture(); using var handler = new NetworkHandler();
+        using (var first = fixture.Pipeline(handler))
+        {
+            first.Configure(new(true, MaxAttempts: 1), Epoch);
+            await first.Pulse(Epoch.AddMinutes(1));
+            Assert.Contains("无法连接 AI 服务", first.Error);
+        }
+        var waiting = Assert.Single(fixture.Store.Jobs(JobStatus.Retry));
+        Assert.True(waiting.WaitForConnection);
+        using var pipeline = fixture.Pipeline(handler);
+        await pipeline.Pulse(Epoch.AddSeconds(90));
+        await pipeline.Pulse(Epoch.AddSeconds(100));
+        Assert.Equal(1, handler.Requests); Assert.Equal(1, handler.Probes);
+        handler.Connected = true;
+        await pipeline.Pulse(Epoch.AddSeconds(120));
+        Assert.Equal(2, handler.Requests); Assert.Equal(2, handler.Probes);
+        Assert.Single(fixture.Store.Records("2026-09-10"));
+        Assert.Empty(fixture.Store.Jobs(JobStatus.Retry));
+    }
+
+    [Fact] public async Task ExhaustedRetryBecomesHiddenInvalidJobAndRemovesScreenshot()
+    {
+        using var fixture = new Fixture(); using var pipeline = fixture.Pipeline(new Handler(_ => new(HttpStatusCode.TooManyRequests)));
+        pipeline.Configure(new(true, MaxAttempts: 1), Epoch);
+        await pipeline.Pulse(Epoch.AddMinutes(1));
+        var invalid = Assert.Single(fixture.Store.Jobs(JobStatus.Invalid));
+        Assert.Equal(1, invalid.Attempts);
+        Assert.False(invalid.CleanupPending);
+        Assert.Empty(fixture.Store.Records("2026-09-10"));
+        Assert.Empty(Directory.GetFiles(Path.Combine(fixture.Folder, "Screenshots"), "*.png"));
+        Assert.Equal(0, fixture.Store.UnfinishedJobs(0).Total);
+        Assert.DoesNotContain(fixture.Store.JobCounts(), item => item.Status == "Invalid");
     }
 
     [Fact] public void InvalidCategoryChangesKeepPreviousConfiguration()
@@ -359,7 +417,7 @@ public sealed class RecognitionTests
             Assert.Empty(fixture.Store.Records("2026-09-10"));
             Assert.Single(fixture.Store.Jobs(JobStatus.Manual));
             Assert.Single(Directory.GetFiles(Path.Combine(fixture.Folder, "Screenshots"), "*.png"));
-            Assert.Contains("详细原因已写入", pipeline.Error);
+        Assert.Contains("保存识别任务或结果失败", pipeline.Error);
             var report = File.ReadAllText(Directory.GetFiles(Path.Combine(fixture.Folder, "Logs"), "recognition-failure-*.html").Single());
             Assert.Contains("保存识别结果到本地数据库", report);
             Assert.Contains("SQLite 数据库操作失败", report);
@@ -392,7 +450,8 @@ public sealed class RecognitionTests
             Assert.True(fixture.Store.Jobs(JobStatus.Succeeded).Single().CleanupPending);
         }
         finally { held?.Dispose(); }
-        pipeline.RetryFailed(); await pipeline.Pulse(Epoch.AddSeconds(61));
+        pipeline.Configure(new(false), Epoch.AddSeconds(61));
+        await pipeline.Pulse(Epoch.AddSeconds(120));
         Assert.False(fixture.Store.Jobs(JobStatus.Succeeded).Single().CleanupPending);
         Assert.Empty(Directory.GetFiles(Path.Combine(fixture.Folder, "Screenshots"), "*.png"));
         Assert.Equal(1, handler.Calls); Assert.Single(fixture.Store.Records("2026-09-10"));

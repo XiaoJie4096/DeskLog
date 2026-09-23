@@ -9,6 +9,22 @@ namespace Riji.Infrastructure;
 public sealed record ModelInfo(string Id, int? ContextK);
 public sealed class HttpAiClient(HttpClient client)
 {
+    public async Task<bool> CanReach(AiConfiguration configuration, CancellationToken cancellation)
+    {
+        var endpoint = configuration.Endpoint.TrimEnd('/');
+        if (!endpoint.EndsWith("/chat/completions", StringComparison.Ordinal)) endpoint += "/chat/completions";
+        using var request = new HttpRequestMessage(HttpMethod.Head, endpoint);
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
+        timeout.CancelAfter(TimeSpan.FromSeconds(5));
+        try
+        {
+            using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
+            return true;
+        }
+        catch (HttpRequestException) { return false; }
+        catch (OperationCanceledException) when (!cancellation.IsCancellationRequested) { return false; }
+    }
+
     public async Task<ModelInfo[]> Models(string endpoint, string key, CancellationToken cancellation = default)
     {
         AiConfiguration.ValidateEndpoint(endpoint);
@@ -88,8 +104,8 @@ public sealed class HttpAiClient(HttpClient client)
             if (string.IsNullOrWhiteSpace(content)) throw new AiFailure("AI 返回空内容。", true);
             return content;
         }
-        catch (OperationCanceledException) when (!cancellation.IsCancellationRequested) { throw new AiFailure("AI 请求超时。", true); }
-        catch (HttpRequestException) { throw new AiFailure("无法连接 AI 服务。", true); }
+        catch (OperationCanceledException) when (!cancellation.IsCancellationRequested) { throw new AiFailure("AI 请求超时。", true, networkFailure: true); }
+        catch (HttpRequestException) { throw new AiFailure("无法连接 AI 服务。", true, networkFailure: true); }
         catch (Exception e) when (e is JsonException or KeyNotFoundException or InvalidOperationException or IndexOutOfRangeException) { throw new AiFailure("AI 服务返回了无效响应。", true, diagnosticResponse: diagnosticResponse); }
     }
 

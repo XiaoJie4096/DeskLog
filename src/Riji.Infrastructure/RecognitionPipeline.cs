@@ -18,6 +18,9 @@ public sealed class RecognitionPipeline : IDisposable
     private bool busy;
     private bool closing;
     private DateTimeOffset nextCapture = DateTimeOffset.MaxValue;
+    private DateTimeOffset nextMaintenance = DateTimeOffset.MinValue;
+    private DateTimeOffset nextConnectionCheck = DateTimeOffset.MinValue;
+    private bool connectionAvailable;
     public AiConfiguration? Configuration { get; set; }
     public CaptureSettings Settings { get; private set; }
     public Category[] Categories { get; private set; }
@@ -38,9 +41,9 @@ public sealed class RecognitionPipeline : IDisposable
         foreach (var job in store.Jobs(JobStatus.Capturing, JobStatus.Running))
         {
             var exists = File.Exists(ImagePath(job));
-            store.SaveJob(job with { Status = exists ? JobStatus.Pending : JobStatus.Manual, Error = exists ? null : "截图未完成，请检查保留文件。" });
+            store.SaveJob(job with { Status = exists ? JobStatus.Pending : JobStatus.Invalid, Error = exists ? null : "截图未完成，任务已失效。" });
         }
-        foreach (var job in store.Jobs(JobStatus.Succeeded).Where(job => job.CleanupPending)) Cleanup(job);
+        foreach (var job in store.CleanupJobs()) Cleanup(job);
     }
 
     private string ImagePath(RecognitionJob job)
@@ -95,7 +98,7 @@ public sealed class RecognitionPipeline : IDisposable
 
     public async Task Pulse(DateTimeOffset now)
     {
-        if (busy || closing || Configuration is null || Paused || !Settings.Enabled || !allowed()) return;
+        if (busy || closing) return;
         busy = true;
         RecognitionJob? job = null;
         var stage = "准备识别任务";
@@ -103,7 +106,26 @@ public sealed class RecognitionPipeline : IDisposable
         string? attemptedKey = null;
         try
         {
-            job = store.NextJob(now);
+            if (now >= nextMaintenance)
+            {
+                nextMaintenance = now.AddMinutes(1);
+                foreach (var expired in store.ExpiredJobs(now.AddHours(-24))) Invalidate(expired, "超过 24 小时未完成识别，任务已失效。");
+                foreach (var pendingCleanup in store.CleanupJobs()) Cleanup(pendingCleanup);
+            }
+            if (Configuration is null || Paused || !Settings.Enabled || !allowed()) return;
+            var waiting = store.WaitingConnectionJob();
+            if (waiting is not null)
+            {
+                if (now >= nextConnectionCheck)
+                {
+                    nextConnectionCheck = now.AddSeconds(30);
+                    connectionAvailable = await client.CanReach(Configuration, stop.Token);
+                }
+                if (!connectionAvailable) return;
+                job = waiting with { Status = JobStatus.Pending, WaitForConnection = false, RetryAt = null };
+                store.SaveJob(job);
+            }
+            job ??= store.NextJob(now);
             if (job is null && Settings.Enabled)
             {
                 if (nextCapture == DateTimeOffset.MaxValue) nextCapture = now.AddSeconds(Settings.IntervalSeconds);
@@ -145,19 +167,43 @@ public sealed class RecognitionPipeline : IDisposable
                 attemptedConfiguration?.Model ?? Configuration?.Model,
                 job?.Prompt,
                 job is null ? null : ImagePath(job), attemptedKey);
-            Error = diagnosticLog.WriteFailed
-                ? "截图识别失败，诊断日志写入失败，请检查本地数据目录权限和磁盘空间。"
-                : "截图识别失败，详细原因已写入本机识别故障日志。";
+            Error = FailureSummary(stage, error);
+            if (error is AiFailure { NetworkFailure: true }) { connectionAvailable = false; nextConnectionCheck = now.AddSeconds(30); }
             if (error is AiFailure { Authorization: true })
             { Paused = true; try { store.SaveValue("ai-paused", true); } catch (Microsoft.Data.Sqlite.SqliteException) { } }
             if (job is not null)
             {
-                var retry = error is AiFailure { Retryable: true } && job.Attempts < Settings.MaxAttempts;
-                try { store.SaveJob(job with { Status = retry ? JobStatus.Retry : JobStatus.Manual, Error = Error, RetryAt = now.AddSeconds(Math.Min(300, 10 * Math.Pow(2, job.Attempts))) }); }
+                var retry = error is AiFailure { NetworkFailure: true } || error is AiFailure { Retryable: true } && job.Attempts < Settings.MaxAttempts;
+                try
+                {
+                    if (job.Status == JobStatus.Capturing || error is FileNotFoundException or DirectoryNotFoundException || error is AiFailure { Retryable: true } && !retry)
+                        Invalidate(job, Error);
+                    else
+                        store.SaveJob(job with { Status = retry ? JobStatus.Retry : JobStatus.Manual, Error = Error,
+                            RetryAt = retry && error is not AiFailure { NetworkFailure: true } ? now.AddSeconds(Math.Min(300, 10 * Math.Pow(2, job.Attempts))) : null,
+                            WaitForConnection = retry && error is AiFailure { NetworkFailure: true } });
+                }
                 catch (Exception) { /* The previously committed job remains the recovery source. */ }
             }
         }
         finally { busy = false; }
+    }
+
+    private static string FailureSummary(string stage, Exception error) => error switch
+    {
+        AiFailure failure => failure.Message,
+        FileNotFoundException or DirectoryNotFoundException => "找不到本次截图，无法继续识别。",
+        UnauthorizedAccessException => $"{stage}失败：Windows 拒绝访问文件或目录。",
+        IOException => $"{stage}失败：文件或目录不可用，请检查磁盘空间及占用情况。",
+        Microsoft.Data.Sqlite.SqliteException => "保存识别任务或结果失败，请检查本地数据库和磁盘空间。",
+        _ => $"{stage}失败（{error.GetType().Name}），请查看故障详情。"
+    };
+
+    private void Invalidate(RecognitionJob job, string reason)
+    {
+        var invalid = job with { Status = JobStatus.Invalid, Error = reason, RetryAt = null, WaitForConnection = false, CleanupPending = File.Exists(ImagePath(job)) };
+        store.SaveJob(invalid);
+        if (invalid.CleanupPending) Cleanup(invalid);
     }
 
     internal static string DescribeFailure(string stage, Exception error)
@@ -182,19 +228,19 @@ public sealed class RecognitionPipeline : IDisposable
     {
         try
         {
-            if (!Settings.KeepImages) File.Delete(ImagePath(job));
-            store.SaveJob(job with { Status = JobStatus.Succeeded, CleanupPending = false, Error = null });
+            if (job.Status == JobStatus.Invalid || !Settings.KeepImages) File.Delete(ImagePath(job));
+            store.SaveJob(job with { CleanupPending = false, Error = job.Status == JobStatus.Invalid ? job.Error : null });
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or Microsoft.Data.Sqlite.SqliteException)
-        { Error = "识别结果已保存，截图清理等待恢复；不会重新识别。"; }
+        { Error = "截图清理失败，稍后会自动重试。"; }
     }
 
     public void RetryFailed()
     {
         if (busy || closing) throw new InvalidOperationException("请等待当前任务结束，或重启恢复识别服务。");
         foreach (var job in store.Jobs(JobStatus.Manual, JobStatus.Retry))
-            store.SaveJob(job with { Status = JobStatus.Pending, Attempts = 0, RetryAt = null, Error = null });
-        foreach (var job in store.Jobs(JobStatus.Succeeded).Where(job => job.CleanupPending)) Cleanup(job);
+            store.SaveJob(job with { Status = JobStatus.Pending, Attempts = 0, RetryAt = null, Error = null, WaitForConnection = false });
+        foreach (var job in store.CleanupJobs()) Cleanup(job);
     }
 
     public string ActiveKey() => Configuration is null ? throw new InvalidOperationException("请先验证 AI 配置。") : unprotect(Configuration.ProtectedKey);

@@ -24,6 +24,7 @@
 .recent-record:last-child{border:0}.recent-record p{margin:0;overflow-wrap:anywhere}
 .health-compact{margin-top:22px}.health-compact>button{border:0;color:var(--muted);padding:0}.health-compact p{padding:15px;background:var(--surface);border-radius:8px}
 .date-picker{align-items:center;flex-wrap:wrap}.date-picker>span{font-size:12px;color:var(--muted)}
+.night-settings{margin-top:22px}.night-settings .setting:last-child{border-bottom:0;padding-bottom:0}
 .review-summary{display:flex;gap:45px;padding:20px 0 25px;border-bottom:1px solid var(--line)}
 .review-summary strong{display:block;margin-top:7px;font-size:20px;color:var(--accent)}
 .hour-overview{font-size:13px}.hour-categories{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:10px 0 8px}
@@ -75,3 +76,6 @@
 @media(max-width:700px){.state-strip{align-items:flex-start;flex-direction:column;gap:12px}.mode-quick{width:100%;box-sizing:border-box}.mode-quick button{flex:1}}
 .state-strip{justify-content:flex-start;gap:10px}.state-strip .mode-quick{order:1}.state-strip .mode-help-anchor{order:2}.state-strip .state-info{order:3;margin-left:auto}
 .sidebar-bottom>button{display:none}
+.recent-record{grid-template-columns:78px auto minmax(0,1fr)}
+.hour-group .hour-records .recognition-timeline li{grid-template-columns:78px minmax(0,1fr)}
+@media(max-width:850px){.recent-record{grid-template-columns:78px auto}}

@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { categoryTotals, previewRange, selectHourlySummary } from '../src/Riji.Web/src/ui-data.ts';
+import { activityTime, dayBounds } from '../src/Riji.Web/src/day-time.ts';
 
 const sample = (minute, seconds, name = '开发', color = '#ddb777') => ({
   id: String(minute), utc: new Date(2026, 8, 12, 12, minute).toISOString(), seconds,
@@ -42,4 +43,16 @@ test('unknown partial day is not displayed as zero or a whole-day estimate', () 
   assert.equal(previewRange(state, '', '2026-09-12T12:10'), null);
   assert.equal(previewRange(state, '2026-09-12T12:10', '2026-09-12T12:00'), null);
   assert.deepEqual(previewRange(state, '2026-09-10T00:00', '2026-09-11T00:00'), { count: 0, seconds: 0 });
+});
+test('night day and early morning labels follow the selected display mode', () => {
+  const settings = { nightMode: true, dayStartHour: 5, extendedHours: false };
+  const bounds = dayBounds('2026-09-22', settings);
+  assert.equal(bounds.start.getHours(), 5);
+  assert.equal(bounds.end.getDate(), 23);
+  assert.equal(bounds.end.getHours(), 5);
+  const early = new Date(2026, 8, 23, 1, 0).toISOString();
+  assert.equal(activityTime(early, '2026-09-22', settings), '次日 01:00');
+  assert.equal(activityTime(early, '2026-09-22', { ...settings, extendedHours: true }), '25:00');
+  const nightState = { day: '2026-09-22', settings, days: [], recognition: { records: [{ ...sample(0, 60), utc: early }] } };
+  assert.deepEqual(previewRange(nightState, '2026-09-22T05:00', '2026-09-23T05:00'), { count: 1, seconds: 60 });
 });

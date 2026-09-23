@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { Snapshot } from './bridge';
 import { categoryTotals } from './ui-data';
+import { activityTime } from './day-time';
 
 export const formatTime = (seconds: number) => {
   const total = Math.max(0, Math.floor(seconds));
@@ -8,12 +9,12 @@ export const formatTime = (seconds: number) => {
   const hours = Math.floor(total / 3600), minutes = Math.floor(total % 3600 / 60);
   return hours ? `${hours} 时${minutes ? ` ${minutes} 分` : ''}` : `${minutes} 分`;
 };
-const clock = (utc: string) => new Date(utc).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false });
 
 export function TodayOverview({ state, review }: { state: Snapshot; review: () => void }) {
   const records = [...state.recognition.records].sort((a, b) => a.utc.localeCompare(b.utc));
   const total = records.reduce((sum, r) => sum + r.seconds, 0);
   const groups = categoryTotals(records);
+  const clock = (utc: string) => activityTime(utc, state.day, state.settings);
   let offset = 0;
   const slices = groups.map(g => { const start = offset; offset += g.seconds / total * 100; return `${g.color} ${start}% ${offset}%`; });
   return <div className="home-grid original-home">

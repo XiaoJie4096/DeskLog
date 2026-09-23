@@ -38,21 +38,22 @@ public sealed record CaptureSettings(bool Enabled = false, int IntervalSeconds =
         if (Prompt is not null && (string.IsNullOrWhiteSpace(Prompt) || Prompt.Length > 10000)) throw new ArgumentException("识别提示词不能为空，最多 10000 字。");
     }
 }
-public enum JobStatus { Capturing, Pending, Running, Retry, Succeeded, Manual }
+public enum JobStatus { Capturing, Pending, Running, Retry, Succeeded, Manual, Invalid }
 public sealed record RecognitionJob(string Id, DateTimeOffset Utc, string Day, int IntervalSeconds, string Image,
     Category[] Categories, JobStatus Status = JobStatus.Capturing, int Attempts = 0, DateTimeOffset? RetryAt = null,
-    string? Error = null, bool CleanupPending = false, string? Prompt = null, RecognitionContext? Context = null);
+    string? Error = null, bool CleanupPending = false, string? Prompt = null, RecognitionContext? Context = null, bool WaitForConnection = false);
 public sealed record RecognitionResult(string Description, string CategoryId, double Confidence);
 public sealed record ActivityRecord(string Id, DateTimeOffset Utc, string Day, int Seconds, string Description, Category Category, double Confidence, string? AppName = null, string? BrowserTitle = null, string? Website = null);
 public sealed record JobHealth(string Status, int Count);
-public sealed record JobDetail(string Id, DateTimeOffset Utc, JobStatus Status, int Attempts, DateTimeOffset? RetryAt, string? Error, bool CleanupPending);
+public sealed record JobDetail(string Id, DateTimeOffset Utc, JobStatus Status, int Attempts, DateTimeOffset? RetryAt, string? Error, bool CleanupPending, bool WaitForConnection);
 public sealed record JobPage(JobDetail[] Items, int Total);
 
-public sealed class AiFailure(string safeMessage, bool retryable = false, bool authorization = false, string? diagnosticResponse = null) : Exception(safeMessage)
+public sealed class AiFailure(string safeMessage, bool retryable = false, bool authorization = false, string? diagnosticResponse = null, bool networkFailure = false) : Exception(safeMessage)
 {
     public bool Retryable { get; } = retryable;
     public bool Authorization { get; } = authorization;
     public string? DiagnosticResponse { get; } = diagnosticResponse;
+    public bool NetworkFailure { get; } = networkFailure;
 }
 
 public static class RecognitionValidation

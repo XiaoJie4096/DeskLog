@@ -38,9 +38,35 @@ public sealed partial class LocalStore
     public RecognitionJob? NextJob(DateTimeOffset now)
     {
         using var command = connection.CreateCommand();
-        command.CommandText = "SELECT payload FROM recognition_jobs WHERE status IN ('Pending','Retry') AND retry_utc<=$now ORDER BY utc LIMIT 1";
+        command.CommandText = "SELECT payload FROM recognition_jobs WHERE status IN ('Pending','Retry') AND retry_utc<=$now AND COALESCE(json_extract(payload,'$.WaitForConnection'),0)=0 ORDER BY utc LIMIT 1";
         command.Parameters.AddWithValue("$now", now.ToString("O"));
         return command.ExecuteScalar() is string json ? JsonSerializer.Deserialize<RecognitionJob>(json) : null;
+    }
+
+    public RecognitionJob? WaitingConnectionJob()
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT payload FROM recognition_jobs WHERE status='Retry' AND json_extract(payload,'$.WaitForConnection')=1 ORDER BY utc LIMIT 1";
+        return command.ExecuteScalar() is string json ? JsonSerializer.Deserialize<RecognitionJob>(json) : null;
+    }
+
+    public List<RecognitionJob> ExpiredJobs(DateTimeOffset cutoff)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT payload FROM recognition_jobs WHERE status IN ('Capturing','Pending','Running','Retry','Manual') AND julianday(utc)<=julianday($cutoff) ORDER BY utc LIMIT 100";
+        command.Parameters.AddWithValue("$cutoff", cutoff.ToUniversalTime().ToString("O"));
+        using var reader = command.ExecuteReader(); List<RecognitionJob> jobs = [];
+        while (reader.Read()) jobs.Add(JsonSerializer.Deserialize<RecognitionJob>(reader.GetString(0))!);
+        return jobs;
+    }
+
+    public List<RecognitionJob> CleanupJobs()
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT payload FROM recognition_jobs WHERE status IN ('Succeeded','Invalid') AND json_extract(payload,'$.CleanupPending') = 1";
+        using var reader = command.ExecuteReader(); List<RecognitionJob> jobs = [];
+        while (reader.Read()) jobs.Add(JsonSerializer.Deserialize<RecognitionJob>(reader.GetString(0))!);
+        return jobs;
     }
 
     // A successful record and task state are committed in the same transaction.
@@ -79,7 +105,7 @@ public sealed partial class LocalStore
 
     public List<JobHealth> JobCounts()
     {
-        using var command = connection.CreateCommand(); command.CommandText = "SELECT status,COUNT(*) FROM recognition_jobs GROUP BY status";
+        using var command = connection.CreateCommand(); command.CommandText = "SELECT status,COUNT(*) FROM recognition_jobs WHERE status <> 'Invalid' GROUP BY status";
         using var reader = command.ExecuteReader(); List<JobHealth> rows = [];
         while (reader.Read()) rows.Add(new(reader.GetString(0), reader.GetInt32(1))); return rows;
     }
@@ -88,7 +114,7 @@ public sealed partial class LocalStore
     public JobPage UnfinishedJobs(int offset)
     {
         if (offset < 0) throw new ArgumentException("任务页码无效。");
-        const string filter = "status <> 'Succeeded' OR json_extract(payload,'$.CleanupPending') = 1";
+        const string filter = "status NOT IN ('Succeeded','Invalid') OR status = 'Succeeded' AND json_extract(payload,'$.CleanupPending') = 1";
         using var count = connection.CreateCommand(); count.CommandText = "SELECT COUNT(*) FROM recognition_jobs WHERE " + filter;
         var total = Convert.ToInt32(count.ExecuteScalar());
         using var command = connection.CreateCommand();
@@ -98,7 +124,7 @@ public sealed partial class LocalStore
         while (reader.Read())
         {
             var job = JsonSerializer.Deserialize<RecognitionJob>(reader.GetString(0))!;
-            rows.Add(new(job.Id, job.Utc, job.Status, job.Attempts, job.RetryAt, job.Error, job.CleanupPending));
+            rows.Add(new(job.Id, job.Utc, job.Status, job.Attempts, job.RetryAt, job.Error, job.CleanupPending, job.WaitForConnection));
         }
         return new(rows.ToArray(), total);
     }

@@ -4,27 +4,41 @@ import './summaries.css';
 import { previewRange } from './ui-data';
 import { formatTime } from './DesignedPages';
 import { SummaryText } from './SummaryText';
+import { dayBounds } from './day-time';
 
 const labels: Record<GenerationState, string> = { Running: '生成中', Succeeded: '已完成', Failed: '失败，可重试', Cancelled: '已取消' };
-const nextDay = (day: string) => { const date = new Date(day + 'T00:00'); date.setDate(date.getDate() + 1); return date; };
 const localInput = (date: Date) => `${date.toLocaleDateString('sv-SE')}T${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+const dailyFormDay = (form: SummaryForm) => {
+  const start = new Date(form.start), end = new Date(form.end);
+  if (!Number.isFinite(+start) || !Number.isFinite(+end) || start.getMinutes() !== 0 || start.getHours() > 9) return null;
+  const next = new Date(start); next.setDate(next.getDate() + 1);
+  return localInput(next) === form.end ? form.start.slice(0, 10) : null;
+};
 
 export function Summaries({ state }: { state: Snapshot }) {
-  const [form, setForm] = useState<SummaryForm>(() => state.summaryForm ?? { start: `${state.today}T00:00`, end: localInput(nextDay(state.today)), prompt: state.summaryPresets[0]?.prompt ?? '' });
+  const [form, setForm] = useState<SummaryForm>(() => {
+    const { start, end } = dayBounds(state.today, state.settings);
+    const saved = state.summaryForm;
+    const savedDay = saved && dailyFormDay(saved);
+    if (saved && savedDay) {
+      const bounds = dayBounds(savedDay <= state.today ? savedDay : state.today, state.settings);
+      return { ...saved, start: localInput(bounds.start), end: localInput(bounds.end) };
+    }
+    return saved ?? { start: localInput(start), end: localInput(end), prompt: state.summaryPresets[0]?.prompt ?? '' };
+  });
   const [rangeMode, setRangeMode] = useState<'day' | 'range'>(() => {
     const saved = state.summaryForm;
     if (!saved) return 'day';
-    const next = new Date(saved.start); next.setDate(next.getDate() + 1);
-    return saved.start.endsWith('T00:00') && localInput(next) === saved.end ? 'day' : 'range';
+    return dailyFormDay(saved) ? 'day' : 'range';
   });
   const preview = previewRange(state, form.start, form.end);
   function chooseDay(day: string) {
     if (!day) return;
-    const next = new Date(day + 'T00:00'); next.setDate(next.getDate() + 1);
-    setForm(value => ({ ...value, start: day + 'T00:00', end: localInput(next) }));
+    const { start, end } = dayBounds(day, state.settings);
+    setForm(value => ({ ...value, start: localInput(start), end: localInput(end) }));
   }
   function quickRange(kind: 'today' | 'yesterday' | 'afternoon') {
-    const date = new Date(state.today + 'T00:00');
+    const date = new Date(state.today + 'T12:00');
     if (kind === 'yesterday') date.setDate(date.getDate() - 1);
     if (kind !== 'afternoon') { setRangeMode('day'); chooseDay(date.toLocaleDateString('sv-SE')); }
     else { setRangeMode('range'); setForm(value => ({ ...value, start: state.today + 'T12:00', end: state.today + 'T18:00' })); }
