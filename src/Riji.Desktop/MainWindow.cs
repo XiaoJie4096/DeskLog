@@ -252,6 +252,9 @@ public sealed class MainWindow : Window
                     Push(); break;
                 case "retryRecognition": recognition.RetryFailed(); Push(); break;
                 case "recognitionJobs": value = store.UnfinishedJobs(root.GetProperty("offset").GetInt32()); break;
+                case "openRecognitionLog":
+                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(diagnosticLog.RecognitionFailureIndex()) { UseShellExecute = true });
+                    break;
                 case "testAi":
                     var submittedKey = root.TryGetProperty("key", out var keyElement) ? keyElement.GetString() : null;
                     if (string.IsNullOrWhiteSpace(submittedKey) && recognition.Configuration is not null) submittedKey = recognition.ActiveKey();

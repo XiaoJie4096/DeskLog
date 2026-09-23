@@ -21,6 +21,7 @@ public sealed class RecognitionTests
         }
     }
     private static HttpResponseMessage Reply(string text) => new(HttpStatusCode.OK) { Content = new StringContent(JsonSerializer.Serialize(new { choices = new[] { new { finish_reason = "stop", message = new { content = text } } } }), Encoding.UTF8, "application/json") };
+    private static HttpResponseMessage IncompleteReply(string finishReason, string text) => new(HttpStatusCode.OK) { Content = new StringContent(JsonSerializer.Serialize(new { choices = new[] { new { finish_reason = finishReason, message = new { content = text } } } }), Encoding.UTF8, "application/json") };
     private static HttpResponseMessage Success() => Reply("{\"description\":\"正在阅读课程资料\",\"categoryName\":\"学习\",\"confidence\":0.9}");
     private static readonly DateTimeOffset Epoch = DateTimeOffset.Parse("2026-09-10T00:00:00Z");
 
@@ -115,7 +116,10 @@ public sealed class RecognitionTests
         using var pipeline = fixture.Pipeline(handler);
         Assert.Equal("历史合成记录", Assert.Single(fixture.Store.Records("2026-09-10")).Description);
         pipeline.Configure(new(true), Epoch); await pipeline.Pulse(Epoch.AddSeconds(60));
-        Assert.Contains("采集或保存失败", pipeline.Error);
+        Assert.Contains("详细原因已写入", pipeline.Error);
+        var report = File.ReadAllText(Directory.GetFiles(Path.Combine(fixture.Folder, "Logs"), "recognition-failure-*.html").Single());
+        Assert.Contains("创建截图目录", report);
+        Assert.Contains("IOException", report);
         Assert.False(pipeline.Busy); Assert.Equal(0, handler.Calls);
         Assert.Single(fixture.Store.Jobs(JobStatus.Manual));
         Assert.Single(fixture.Store.Records("2026-09-10"));
@@ -123,6 +127,21 @@ public sealed class RecognitionTests
         await pipeline.Pulse(Epoch.AddSeconds(120));
         Assert.Null(pipeline.Error); Assert.Equal(1, handler.Calls);
         Assert.Equal(2, fixture.Store.Records("2026-09-10").Count);
+    }
+
+    [Fact] public async Task RecognitionFailureReportIncludesScreenshotPromptAndRawResponseButRedactsApiKey()
+    {
+        using var fixture = new Fixture();
+        var handler = new Handler(_ => IncompleteReply("length", "provider said test-key was rejected"));
+        using var pipeline = fixture.Pipeline(handler); pipeline.Configure(new(true, Prompt: "识别活动"), Epoch);
+        await pipeline.Pulse(Epoch.AddSeconds(60));
+        Assert.Contains("详细原因已写入", pipeline.Error);
+        var report = File.ReadAllText(Assert.Single(Directory.GetFiles(Path.Combine(fixture.Folder, "Logs"), "recognition-failure-*.html")));
+        Assert.Contains("识别时的截图", report); Assert.Contains("识别活动", report);
+        Assert.Contains("finish_reason", report); Assert.Contains("length", report);
+        Assert.Contains("[API Key 已隐藏]", report); Assert.DoesNotContain("test-key", report);
+        Assert.DoesNotContain("provider said test-key", pipeline.Error);
+        Assert.Single(fixture.Store.Jobs(JobStatus.Retry));
     }
 
     [Fact] public async Task RetryUsesOriginalIntervalAndCommitsExactlyOnce()
@@ -340,7 +359,10 @@ public sealed class RecognitionTests
             Assert.Empty(fixture.Store.Records("2026-09-10"));
             Assert.Single(fixture.Store.Jobs(JobStatus.Manual));
             Assert.Single(Directory.GetFiles(Path.Combine(fixture.Folder, "Screenshots"), "*.png"));
-            Assert.Contains("保存失败", pipeline.Error);
+            Assert.Contains("详细原因已写入", pipeline.Error);
+            var report = File.ReadAllText(Directory.GetFiles(Path.Combine(fixture.Folder, "Logs"), "recognition-failure-*.html").Single());
+            Assert.Contains("保存识别结果到本地数据库", report);
+            Assert.Contains("SQLite 数据库操作失败", report);
             Assert.DoesNotContain("sensitive", pipeline.Error);
         }
         Sql("DROP TRIGGER fail_result");

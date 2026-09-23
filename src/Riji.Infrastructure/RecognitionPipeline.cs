@@ -13,6 +13,7 @@ public sealed class RecognitionPipeline : IDisposable
     private readonly Func<string, string> unprotect;
     private readonly Func<Observation?> observe;
     private readonly string images;
+    private readonly DiagnosticLog diagnosticLog;
     private readonly CancellationTokenSource stop = new();
     private bool busy;
     private bool closing;
@@ -29,6 +30,7 @@ public sealed class RecognitionPipeline : IDisposable
     {
         this.store = store; this.client = client; this.capture = capture; this.allowed = allowed; this.protect = protect; this.unprotect = unprotect;
         this.observe = observe ?? (() => null);
+        diagnosticLog = new(dataDirectory);
         images = Path.Combine(dataDirectory, store.ImageRootName());
         Configuration = store.Read<AiConfiguration>("ai-active"); Settings = store.Read<CaptureSettings>("capture") ?? new();
         Settings.Validate(); Categories = store.Read<Category[]>("categories") ?? Category.Defaults; Category.Validate(Categories);
@@ -96,6 +98,9 @@ public sealed class RecognitionPipeline : IDisposable
         if (busy || closing || Configuration is null || Paused || !Settings.Enabled || !allowed()) return;
         busy = true;
         RecognitionJob? job = null;
+        var stage = "准备识别任务";
+        AiConfiguration? attemptedConfiguration = null;
+        string? attemptedKey = null;
         try
         {
             job = store.NextJob(now);
@@ -109,17 +114,25 @@ public sealed class RecognitionPipeline : IDisposable
                 var instruction = Settings.Prompt ?? RecognitionPrompts.Default;
                 job = job with { Prompt = RecognitionPrompts.Build(instruction, job.Categories, null) };
                 store.SaveJob(job);
+                stage = "创建截图目录";
                 Directory.CreateDirectory(images);
                 var before = observe();
+                stage = "采集屏幕截图";
                 capture(ImagePath(job));
                 var context = RecognitionContext.From(before, observe());
                 job = job with { Status = JobStatus.Pending, Context = context, Prompt = RecognitionPrompts.Build(instruction, job.Categories, context) }; store.SaveJob(job);
             }
             if (job is null || !allowed()) return;
+            stage = "读取截图文件";
             var bytes = await File.ReadAllBytesAsync(ImagePath(job), stop.Token);
             if (!allowed() || !Settings.Enabled || closing) return;
+            stage = "保存识别任务状态";
             job = job with { Status = JobStatus.Running, Attempts = job.Attempts + 1, Error = null }; store.SaveJob(job);
-            var result = await client.Recognize(Configuration, unprotect(Configuration.ProtectedKey), bytes, job.Categories, stop.Token, job.Prompt);
+            stage = "请求截图识别服务";
+            attemptedConfiguration = Configuration;
+            attemptedKey = unprotect(Configuration.ProtectedKey);
+            var result = await client.Recognize(attemptedConfiguration, attemptedKey, bytes, job.Categories, stop.Token, job.Prompt);
+            stage = "保存识别结果到本地数据库";
             store.Complete(job, result);
             Error = null;
             Cleanup(job with { Status = JobStatus.Succeeded, CleanupPending = true });
@@ -127,7 +140,14 @@ public sealed class RecognitionPipeline : IDisposable
         catch (OperationCanceledException) when (closing) { }
         catch (Exception error)
         {
-            Error = error is AiFailure ? error.Message : "采集或保存失败，请检查磁盘、权限和配置；未完成截图会保留。";
+            diagnosticLog.RecognitionFailure(job?.Id, job?.Utc, stage, error,
+                attemptedConfiguration?.Endpoint ?? Configuration?.Endpoint,
+                attemptedConfiguration?.Model ?? Configuration?.Model,
+                job?.Prompt,
+                job is null ? null : ImagePath(job), attemptedKey);
+            Error = diagnosticLog.WriteFailed
+                ? "截图识别失败，诊断日志写入失败，请检查本地数据目录权限和磁盘空间。"
+                : "截图识别失败，详细原因已写入本机识别故障日志。";
             if (error is AiFailure { Authorization: true })
             { Paused = true; try { store.SaveValue("ai-paused", true); } catch (Microsoft.Data.Sqlite.SqliteException) { } }
             if (job is not null)
@@ -138,6 +158,24 @@ public sealed class RecognitionPipeline : IDisposable
             }
         }
         finally { busy = false; }
+    }
+
+    internal static string DescribeFailure(string stage, Exception error)
+    {
+        if (error is AiFailure aiFailure)
+            return $"失败阶段：{stage}。原因：{aiFailure.Message}";
+
+        var reason = error switch
+        {
+            UnauthorizedAccessException => "Windows 拒绝访问所需文件或目录。",
+            FileNotFoundException => "找不到本次截图文件。",
+            DirectoryNotFoundException => "截图目录不存在或无法访问。",
+            IOException => "文件读写失败，可能是磁盘空间不足、文件被占用或路径不可用。",
+            Microsoft.Data.Sqlite.SqliteException sqlite => $"SQLite 数据库操作失败（错误码 {sqlite.SqliteErrorCode}，扩展码 {sqlite.SqliteExtendedErrorCode}）。",
+            InvalidDataException => "截图数据无效或不完整。",
+            _ => $"发生 {error.GetType().Name}（HRESULT 0x{error.HResult:X8}）。"
+        };
+        return $"失败阶段：{stage}。原因：{reason}";
     }
 
     private void Cleanup(RecognitionJob job)

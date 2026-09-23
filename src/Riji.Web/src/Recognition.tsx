@@ -42,6 +42,7 @@ export function RecognitionSettings({ state, section }: { state: Snapshot; secti
       <p>最近成功记录的采样时间：{current.latestSample ? new Date(current.latestSample).toLocaleString('zh-CN') : '暂无成功记录'}</p>
       <RecognitionJobs />
       <button disabled={busy || current.busy} onClick={() => void run('retryRecognition', {}, '失败任务已加入待处理队列；恢复识别后继续。')}>重试失败任务与截图清理</button>
+      <button disabled={busy} onClick={() => void run('openRecognitionLog', {}, '已打开最近一次截图识别故障报告。')}>查看最近识别故障详情</button>
       <form className="ai-form" onSubmit={event => { event.preventDefault(); void configure({ prompt }); }}>
         <h3>截图识别提示词</h3>
         <p>设置描述重点、表达方式和分类原则。程序会自动附加启用分类的名称与说明、返回格式和采样时的前台辅助信息。</p>

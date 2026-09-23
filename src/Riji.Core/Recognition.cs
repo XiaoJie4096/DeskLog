@@ -48,10 +48,11 @@ public sealed record JobHealth(string Status, int Count);
 public sealed record JobDetail(string Id, DateTimeOffset Utc, JobStatus Status, int Attempts, DateTimeOffset? RetryAt, string? Error, bool CleanupPending);
 public sealed record JobPage(JobDetail[] Items, int Total);
 
-public sealed class AiFailure(string safeMessage, bool retryable = false, bool authorization = false) : Exception(safeMessage)
+public sealed class AiFailure(string safeMessage, bool retryable = false, bool authorization = false, string? diagnosticResponse = null) : Exception(safeMessage)
 {
     public bool Retryable { get; } = retryable;
     public bool Authorization { get; } = authorization;
+    public string? DiagnosticResponse { get; } = diagnosticResponse;
 }
 
 public static class RecognitionValidation
