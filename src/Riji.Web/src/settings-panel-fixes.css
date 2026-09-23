@@ -1,0 +1,129 @@
+.settings-switch:before {
+  left: 3px;
+  right: auto;
+  background: var(--surface);
+  transform: none;
+}
+
+.settings-switch:checked:before {
+  left: auto;
+  right: 3px;
+  background: var(--surface);
+  transform: none;
+}
+
+.settings-status {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  margin: 0 0 20px;
+  border-left: 3px solid var(--accent);
+  background: var(--soft);
+  font-size: 12px;
+}
+
+.settings-status-warning {
+  border-color: var(--danger, #d9957c);
+  background: color-mix(in srgb, var(--danger, #d9957c) 12%, transparent);
+}
+
+.settings-status > span {
+  color: var(--danger, #d9957c);
+  font-weight: 700;
+}
+
+.settings-status strong,
+.settings-status small {
+  display: block;
+}
+
+.settings-section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.settings-count {
+  color: var(--accent);
+  font: 11px Consolas, monospace;
+}
+
+.settings-page > .settings {
+  max-width: 950px;
+  min-width: 0;
+}
+
+.settings-section {
+  margin: 0 0 31px;
+  border-top: 0;
+  padding-top: 0;
+}
+
+.settings-section-heading {
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 11px;
+}
+
+.settings-section-heading h2 {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  margin: 0;
+}
+
+.prompt-modal {
+  width: min(720px, calc(100vw - 40px));
+}
+
+.prompt-modal textarea {
+  width: 100%;
+  min-height: 220px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--ink);
+  padding: 11px;
+  line-height: 1.7;
+  resize: vertical;
+}
+
+.website-rules-description {
+  margin: 0 0 14px;
+  font-size: 12px;
+}
+
+/* Keep the settings toggle dimensions ahead of the global checkbox reset. */
+.settings-page input.settings-switch {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 36px;
+  min-width: 36px;
+  height: 21px;
+  min-height: 21px;
+  flex: 0 0 36px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 11px;
+  box-sizing: border-box;
+}
+
+.settings-page input.settings-switch:checked {
+  background: var(--accent);
+}
+
+.category-edit {
+  grid-template-columns: 36px 48px 150px minmax(160px, 1fr) 42px;
+}
+
+.category-edit input.settings-switch {
+  justify-self: center;
+}
+
+@media (max-width: 700px) {
+  .category-edit {
+    grid-template-columns: 36px 48px minmax(85px, 1fr) 38px;
+  }
+}

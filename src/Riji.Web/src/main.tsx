@@ -56,7 +56,7 @@ function App() {
       {page === 'review' && <>{heading('回到这一天。', '按成功记录回顾片段，未记录的时间保持留白。', 'LOOK BACK')}{datePicker}{state?.day === day && <section className="review-summary"><div><small>成功识别累计</small><strong>{formatTime(state?.recognition.records.reduce((n, r) => n + r.seconds, 0) ?? 0)}</strong></div><div><small>成功识别</small><strong>{state?.recognition.records.length ?? 0} 次</strong></div><div><small>待重试任务（所有日期）</small><strong>{state?.recognition.jobs.filter(j => j.status === 'Retry' || j.status === 'Manual').reduce((n, j) => n + j.count, 0) ?? 0} 个</strong></div></section>}</>}
       {page === 'summaries' && <>{heading('把片段，串成一段回顾。', '选一段时间，理清观察到的事情。', 'AI SUMMARY')}{state && <Summaries state={state} />}</>}
       {page === 'review' && state && state.day === day && <RecognitionTimeline state={state} />}
-      {page === 'settings' && state && <SettingsPanel state={state} tab={settingsTab as 'record' | 'capture' | 'ai' | 'review' | 'browser' | 'data'} busy={busy} configure={async patch => { return await configure(patch); }} run={run} onTabChange={value => setSettingsTab(value)} />}
+      {page === 'settings' && <>{heading('按你的习惯，慢慢调整。', '记录、隐私与数据，都由你决定。', 'PREFERENCES')}{state && <SettingsPanel state={state} tab={settingsTab as 'record' | 'capture' | 'ai' | 'review' | 'browser' | 'data'} busy={busy} configure={async patch => { return await configure(patch); }} run={run} onTabChange={value => setSettingsTab(value)} />}</>}
     </main>
     {dialog && <div className="overlay" onClick={e => { if (e.target === e.currentTarget && !busy) setDialog(false); }}>
       <section className="modal" role="dialog" aria-modal="true" aria-labelledby="mode-title">

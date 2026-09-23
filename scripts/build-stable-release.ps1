@@ -22,9 +22,18 @@ try {
     if ($LASTEXITCODE -ne 0) { throw '前端构建失败。' }
 } finally { Pop-Location }
 
-& dotnet publish (Join-Path $projectRoot 'src/Riji.Desktop/Riji.Desktop.csproj') -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:PublishTrimmed=false -o $publish --nologo
+& dotnet publish (Join-Path $projectRoot 'src/Riji.Desktop/Riji.Desktop.csproj') -c Release -r win-x64 --self-contained true `
+    -p:Version=$version -p:FileVersion=$version -p:InformationalVersion=$version -p:IncludeSourceRevisionInInformationalVersion=false `
+    -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:PublishTrimmed=false -o $publish --nologo
 if ($LASTEXITCODE -ne 0) { throw '稳定版发布构建失败。' }
-if (-not (Test-Path -LiteralPath (Join-Path $publish 'Riji.Desktop.exe'))) { throw '发布构建缺少桌面程序。' }
+$desktopExe = Join-Path $publish 'Riji.Desktop.exe'
+if (-not (Test-Path -LiteralPath $desktopExe)) { throw '发布构建缺少桌面程序。' }
+$desktopVersion = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($desktopExe)
+if ($desktopVersion.ProductVersion -ne $version) {
+    throw "桌面程序 ProductVersion 不匹配：期望 $version，实际 $($desktopVersion.ProductVersion)"
+}
+Write-Output ('桌面程序 FileVersion: ' + $desktopVersion.FileVersion)
+Write-Output ('桌面程序 ProductVersion: ' + $desktopVersion.ProductVersion)
 Move-Item -LiteralPath (Join-Path $publish 'Riji.Desktop.exe') -Destination (Join-Path $payload 'DeskLog.exe')
 Copy-Item -LiteralPath (Join-Path $publish 'Web') -Destination $payload -Recurse
 Set-Content -LiteralPath (Join-Path $payload 'production-default') -Value 'Production' -Encoding utf8

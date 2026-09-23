@@ -23,7 +23,7 @@ export type Snapshot = {
   recognition: { settings: CaptureSettings; defaultPrompt: string; categories: Category[]; busy: boolean; paused: boolean; error: string | null;
     configured: boolean; endpoint: string | null; model: string | null; summaryModel: string | null; latestSample: string | null; jobs: { status: string; count: number }[];
     records: { id: string; utc: string; seconds: number; description: string; category: Category; confidence: number }[] };
-  days: { day: string; seconds: number; recordCount: number; sampleSeconds: number }[]; profile: string; dataPath: string; savedAt: string;
+  days: { day: string; seconds: number; recordCount: number; sampleSeconds: number }[]; profile: string; dataPath: string; appVersion: string; savedAt: string;
 };
 type Host = { postMessage: (value: unknown) => void; addEventListener: (event: string, callback: (event: MessageEvent) => void) => void };
 declare global { interface Window { chrome?: { webview?: Host } } }

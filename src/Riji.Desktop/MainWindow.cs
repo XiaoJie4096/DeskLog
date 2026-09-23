@@ -27,6 +27,7 @@ public sealed class MainWindow : Window
     private readonly System.Windows.Forms.NotifyIcon tray;
     private readonly string dataDir;
     private readonly string profile;
+    private readonly string appVersion;
     private readonly bool systemTest;
     private readonly BrowserSessions browserSessions = new();
     private readonly BrowserHttpServer? browser;
@@ -62,6 +63,7 @@ public sealed class MainWindow : Window
         this.offlineReview = offlineReview;
         aiHttp = offlineReview ? new(offlineHandler) : new(new System.Net.Http.HttpClientHandler { AllowAutoRedirect = false });
         this.dataDir = dataDir; this.profile = profile;
+        appVersion = ReadAppVersion();
         diagnosticLog = new(dataDir);
         this.systemTest = systemTest;
         Title = "日迹" + (profile != "Production" ? " · 开发版" : "");
@@ -95,8 +97,8 @@ public sealed class MainWindow : Window
         tray = new() { Icon = new System.Drawing.Icon(Path.Combine(AppContext.BaseDirectory, "riji.ico")), Text = "日迹 · 正在记录", Visible = true };
         var menu = new System.Windows.Forms.ContextMenuStrip();
         menu.Items.Add("打开日迹", null, (_, _) => Dispatcher.Invoke(ShowMainWindow));
-        menu.Items.Add("立即恢复", null, (_, _) => Dispatcher.Invoke(() => ChangeMode(RecordingMode.Default, null)));
-        menu.Items.Add("离开", null, (_, _) => Dispatcher.Invoke(() => ChangeMode(RecordingMode.Away, null)));
+        menu.Items.Add("默认模式", null, (_, _) => Dispatcher.Invoke(() => ChangeMode(RecordingMode.Default, null)));
+        menu.Items.Add("离开模式", null, (_, _) => Dispatcher.Invoke(() => ChangeMode(RecordingMode.Away, null)));
         menu.Items.Add("退出日迹", null, (_, _) => Dispatcher.Invoke(Exit));
         tray.ContextMenuStrip = menu;
         tray.MouseClick += (_, e) =>
@@ -349,7 +351,7 @@ public sealed class MainWindow : Window
                 hourlySummaryError = hourlySummaries.Error, summaryBusy = summaries.Busy, summaryForm = store.Read<SummaryForm>("summary-form"),
                 summaryPresets = store.Read<PromptPreset[]>("summary-presets") ?? PromptPreset.Defaults,
                 summaries = store.SummaryHeaders(),
-                days = store.Days(tracker.Settings, TimeZoneInfo.Local), profile, dataPath = store.Path, savedAt = DateTimeOffset.UtcNow,
+                days = store.Days(tracker.Settings, TimeZoneInfo.Local), profile, dataPath = store.Path, appVersion, savedAt = DateTimeOffset.UtcNow,
                 recording = tracker.IsTimingActive, timingStatus = tracker.TimingStatus });
             tray.Text = "日迹 · " + (tracker.State.Mode == RecordingMode.Away ? "离开" : "运行中");
         }
@@ -357,6 +359,18 @@ public sealed class MainWindow : Window
     }
 
     private void Send(object message) { if (ready) web.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(message, json)); }
+
+    private static string ReadAppVersion()
+    {
+        var processPath = Environment.ProcessPath;
+        if (!string.IsNullOrWhiteSpace(processPath) && File.Exists(processPath))
+        {
+            var productVersion = System.Diagnostics.FileVersionInfo.GetVersionInfo(processPath).ProductVersion;
+            if (!string.IsNullOrWhiteSpace(productVersion)) return productVersion;
+        }
+
+        return System.Reflection.Assembly.GetEntryAssembly()?.GetName().Version?.ToString(3) ?? "未知";
+    }
 
     // Quiesce producers before replacing data; restart from committed state without counting the maintenance gap.
     private async Task Maintain(Action operation)

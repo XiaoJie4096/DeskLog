@@ -92,9 +92,20 @@ export function RecognitionJobs() {
     catch (error) { setError(error instanceof Error ? error.message : '任务读取失败'); }
     finally { setBusy(false); }
   }
+  async function retry() {
+    setBusy(true); setError('');
+    try { await command('retryRecognition'); await load(0); }
+    catch (error) { setError(error instanceof Error ? error.message : '重试任务失败'); setBusy(false); }
+  }
+  async function openLog() {
+    setBusy(true); setError('');
+    try { await command('openRecognitionLog'); }
+    catch (error) { setError(error instanceof Error ? error.message : '故障详情打开失败'); }
+    finally { setBusy(false); }
+  }
   return <details className="recognition-jobs" onToggle={event => { if (event.currentTarget.open && !page && !busy) void load(0); }}><summary>查看未完成任务与截图清理</summary>
     <p>按采样时间倒序显示；点击刷新查看最新状态。任务超过 24 小时仍未完成时自动失效并清理截图。</p>
-    <button disabled={busy} onClick={() => void load(0)}>刷新任务</button>
+    <div className="summary-actions"><button disabled={busy} onClick={() => void load(0)}>刷新任务</button>{page?.items.some(item => item.status === 'Retry' || item.status === 'Manual') && <button disabled={busy} onClick={() => void retry()}>重试可处理任务</button>}<button disabled={busy} onClick={() => void openLog()}>查看故障详情</button></div>
     {error && <p role="alert">{error}</p>}
     {page && <><p>共 {page.total} 个 · 当前 {page.items.length ? offset + 1 : 0}–{offset + page.items.length}</p>
       {page.items.map(job => <article key={job.id}><strong>{job.waitForConnection ? '等待 AI 服务连接' : labels[job.status] ?? job.status}</strong><p>{new Date(job.utc).toLocaleString('zh-CN')} · 已尝试 {job.attempts} 次</p>{job.error && <p>{job.error}</p>}{job.status === 'Retry' && job.retryAt && <small>最早重试时间：{new Date(job.retryAt).toLocaleString('zh-CN')}</small>}</article>)}
