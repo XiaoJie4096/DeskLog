@@ -3,14 +3,12 @@ import { createRoot } from 'react-dom/client';
 import { command, subscribe, type Mode, type Settings, type Snapshot } from './bridge';
 import './styles.css';
 import { TodayOverview, ApplicationStatistics, formatTime } from './DesignedPages';
-import { RecognitionSettings, RecognitionTimeline } from './Recognition';
+import { RecognitionTimeline } from './Recognition';
 import { Summaries } from './Summaries';
-import { WebsiteRules } from './WebsiteRules';
 import { DesignIcon } from './DesignIcon';
-import { HourlySettings } from './HourlySettings';
 import { ModeHelp } from './ModeHelp';
-import { NightSettings } from './NightSettings';
 import './design-restoration.css';
+import { SettingsPanel } from './SettingsPanel';
 
 const pages = [['home', '今天', '◷'], ['review', '回顾', '▤'], ['summaries', 'AI 总结', '✧'], ['statistics', '应用统计', '▥'], ['settings', '设置', '⚙']] as const;
 const modes: Record<Mode, string> = { Default: '默认', Away: '离开', Locked: '锁定', NoScreen: '不识屏' };
@@ -28,7 +26,6 @@ function App() {
   const [mode, setMode] = useState<Mode>('Default');
   const [minutes, setMinutes] = useState('30');
   const [busy, setBusy] = useState(false);
-  const [idleDraft, setIdleDraft] = useState('120');
   const run = async (type: string, payload: Record<string, unknown> = {}) => {
     setError(''); setBusy(true);
     try { await command(type, payload); return true; }
@@ -36,12 +33,11 @@ function App() {
     finally { setBusy(false); }
   };
   useEffect(() => subscribe(setState, setError), []);
-  useEffect(() => { if (state) setIdleDraft(String(state.settings.idleSeconds)); }, [state?.settings.idleSeconds]);
   useEffect(() => { if (page === 'home' && state?.today) setDay(state.today); }, [page, state?.today]);
   useEffect(() => { if (state?.today) setDay(state.today); }, [state?.settings.nightMode, state?.settings.dayStartHour]);
   useEffect(() => { void run('snapshot', { day }); }, [day]);
   useEffect(() => { const follow = state?.settings.followSystemTheme; const apply = () => { document.documentElement.dataset.theme = follow ? (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark') : (state?.settings.theme ?? 'dark'); }; apply(); if (!follow) return; const media = matchMedia('(prefers-color-scheme: light)'); media.addEventListener('change', apply); return () => media.removeEventListener('change', apply); }, [state?.settings.theme, state?.settings.followSystemTheme]);
-  const configure = (patch: Partial<Settings>) => state && run('settings', { settings: { ...state.settings, ...patch } });
+  const configure = (patch: Partial<Settings>): Promise<boolean> => state ? run('settings', { settings: { ...state.settings, ...patch } }) : Promise.resolve(false);
   const quickMode = (value: Mode) => { if (!state || busy) return; if (value === 'Locked' || value === 'NoScreen') { setMode(value); setDialog(true); } else void run('mode', { mode: value, minutes: 0 }); };
   const heading = (title: string, subtitle: string, eyebrow: string) => <header className="heading"><div><div className="eyebrow">{eyebrow}</div><h1>{title}</h1><p>{subtitle}</p></div><time>{state?.today ?? localDay()}</time></header>;
   const shiftDay = (offset: number) => { const date = new Date(day + 'T12:00:00'); date.setDate(date.getDate() + offset); setDay(date.toLocaleDateString('sv-SE')); };
@@ -59,15 +55,8 @@ function App() {
       {page === 'statistics' && <>{heading('时间，在应用之间流动。', '看清应用与常用网站分别用了多久。', 'APPLICATION USAGE')}{/* Keep the connection status beside the date controls. */}<div className="statistics-date">{datePicker}<button onClick={() => { setSettingsTab('browser'); setPage('settings'); }}>{state?.browserConnections ? '浏览器插件已连接' : '浏览器插件未连接'} ↗</button></div>{state && state.day === day && <ApplicationStatistics state={state} />}</>}
       {page === 'review' && <>{heading('回到这一天。', '按成功记录回顾片段，未记录的时间保持留白。', 'LOOK BACK')}{datePicker}{state?.day === day && <section className="review-summary"><div><small>成功识别累计</small><strong>{formatTime(state?.recognition.records.reduce((n, r) => n + r.seconds, 0) ?? 0)}</strong></div><div><small>成功识别</small><strong>{state?.recognition.records.length ?? 0} 次</strong></div><div><small>待重试任务（所有日期）</small><strong>{state?.recognition.jobs.filter(j => j.status === 'Retry' || j.status === 'Manual').reduce((n, j) => n + j.count, 0) ?? 0} 个</strong></div></section>}</>}
       {page === 'summaries' && <>{heading('把片段，串成一段回顾。', '选一段时间，理清观察到的事情。', 'AI SUMMARY')}{state && <Summaries state={state} />}</>}
-      {page === 'settings' && <>{heading('按你的习惯，慢慢调整。', '记录、隐私与数据，都由你决定。', 'PREFERENCES')}<nav className="settings-nav" aria-label="设置分区">{[['record','记录与状态'],['capture','截图与 AI'],['categories','活动分类'],['browser','浏览器与隐私'],['data','数据与备份']].map(([id,name]) => <button key={id} className={settingsTab === id ? 'active' : ''} aria-current={settingsTab === id ? 'page' : undefined} onClick={() => setSettingsTab(id)}>{name}</button>)}</nav></>}
-      {page === 'settings' && settingsTab === 'record' && <><section className="panel settings"><h2>记录设置</h2><label className="setting"><span>主题<small>选择深色、浅色，或跟随系统。</small></span><select value={state?.settings.followSystemTheme ? "system" : state?.settings.theme} onChange={e => configure({ theme: e.target.value === "system" ? (state?.settings.theme ?? "dark") : (e.target.value as "dark" | "light"), followSystemTheme: e.target.value === "system" })}><option value="system">跟随系统</option><option value="dark">深色</option><option value="light">浅色</option></select></label><label className="setting"><span>开机自启<small>登录 Windows 后自动启动。</small></span><input type="checkbox" checked={state?.settings.startWithWindows ?? false} onChange={e => configure({ startWithWindows: e.target.checked })} /></label><label className="setting"><span>自动记录<small>关闭后停止新采样、新识别请求和应用计时。</small></span><input type="checkbox" disabled={!state || busy} checked={state?.settings.autoRecord ?? false} onChange={e => configure({ autoRecord: e.target.checked })} /></label><label className="setting"><span>应用使用时长<small>不识屏期间仍可累计；离开、锁屏和休眠时暂停。</small></span><input type="checkbox" disabled={!state || busy} checked={state?.settings.appTiming ?? false} onChange={e => configure({ appTiming: e.target.checked })} /></label><label className="setting"><span>显示桌面时自动离开<small>没有应用窗口且 5 秒无键鼠操作时切换到离开。</small></span><input type="checkbox" disabled={!state || busy} checked={state?.settings.desktopAutoAway ?? true} onChange={e => configure({ desktopAutoAway: e.target.checked })} /></label><form className="setting" onSubmit={e => { e.preventDefault(); void configure({ idleSeconds: Number(idleDraft) }); }}><label htmlFor="idle">无有效操作后离开<small>30–3600 秒，默认 120 秒。轻微鼠标漂移不会恢复。</small></label><div><input id="idle" type="number" min="30" max="3600" value={idleDraft} onChange={e => setIdleDraft(e.target.value)} required /><button disabled={!state || busy}>保存</button></div></form><div className="setting"><span>当前数据位置<small className="path">{state?.dataPath ?? '未连接'}</small></span><span>{state?.profile === 'Production' ? '正式' : '开发'}数据</span></div><p className="notice">应用计时不读取窗口标题或键盘内容。截图和网页标题在对应分区独立控制。关闭窗口后在托盘继续运行；退出会停止记录。</p><button className="outline" disabled={!state} onClick={() => void run('exit')}>退出日迹</button></section></>}
-      {page === 'settings' && settingsTab === 'record' && <NightSettings settings={state?.settings} disabled={!state || busy} configure={patch => { void configure(patch); }} />}
       {page === 'review' && state && state.day === day && <RecognitionTimeline state={state} />}
-      {page === 'settings' && state && (settingsTab === 'capture' || settingsTab === 'categories') && <RecognitionSettings state={state} section={settingsTab} />}
-      {page === 'settings' && settingsTab === 'capture' && state && <HourlySettings state={state} />}
-      {page === 'settings' && settingsTab === 'browser' && state && <WebsiteRules state={state} />}
-      {page === 'settings' && settingsTab === 'data' && <section className="panel history settings"><h2>数据与备份</h2><p>备份包含记录、分类、预设、总结、对话和仍保留的关联截图，不包含 API Key。请妥善保存。</p><p className="notice">维护会暂时暂停采集并取消正在进行的 AI 任务，已完成的数据保留。导入采用完整替换，原数据先自动备份；导入或清空后自动记录与截图保持关闭。</p><div className="summary-actions"><button disabled={busy || !state || state.maintenance} onClick={() => void run('exportData')}>导出备份</button><button disabled={busy || !state || state.maintenance} onClick={() => void run('importData')}>导入并替换</button><button disabled={busy || !state || state.maintenance} onClick={() => void run('clearData')}>清空记录</button></div>{state?.dataStatus && <p role="status" className="path">{state.dataStatus}</p>}{state?.maintenance && <p role="status">数据维护中，请等待完成。</p>}</section>}
-      {page === 'settings' && settingsTab === 'browser' && <section className="panel history settings"><h2>浏览器与隐私</h2><p>{state?.browserConnections ? `已连接 ${state.browserConnections} 个浏览器会话` : '尚未连接浏览器扩展'}</p><label className="setting"><span>记录网页标题<small>开启后将当前标签页标题保存在日迹本地数据库，可在应用统计详情查看；启用截图识别时，也会将采样时的标题作为辅助信息发送给 AI。关闭只影响后续采样，历史标题保留。</small></span><input type="checkbox" disabled={!state || busy} checked={state?.settings.websiteTitles ?? false} onChange={e => configure({ websiteTitles: e.target.checked })} /></label><p className="notice">安装日迹扩展后自动连接，无需配对码。使用开发版时，请在扩展选项中选择“开发版”；正式版默认自动连接。</p>{state?.browserError && <p role="alert">{state.browserError}</p>}</section>}
+      {page === 'settings' && state && <SettingsPanel state={state} tab={settingsTab as 'record' | 'capture' | 'ai' | 'review' | 'browser' | 'data'} busy={busy} configure={async patch => { return await configure(patch); }} run={run} onTabChange={value => setSettingsTab(value)} />}
     </main>
     {dialog && <div className="overlay" onClick={e => { if (e.target === e.currentTarget && !busy) setDialog(false); }}>
       <section className="modal" role="dialog" aria-modal="true" aria-labelledby="mode-title">

@@ -298,6 +298,7 @@ public sealed class MainWindow : Window
                 case "exportData": await ExportBackup(); break;
                 case "importData": await ImportBackup(); break;
                 case "clearData": await ClearData(); break;
+                case "openDataFolder": OpenDataFolder(); break;
                 case "exit": Exit(); return;
                 default: throw new ArgumentException("未知命令。");
             }
@@ -310,6 +311,14 @@ public sealed class MainWindow : Window
     {
         using var key = Registry.CurrentUser.CreateSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run");
         if (enabled) key?.SetValue("Riji", '"' + Environment.ProcessPath + '"'); else key?.DeleteValue("Riji", false);
+    }
+
+    private void OpenDataFolder()
+    {
+        var folder = Path.GetDirectoryName(store.Path);
+        if (string.IsNullOrWhiteSpace(folder)) throw new InvalidOperationException("无法确定数据目录。");
+        Directory.CreateDirectory(folder);
+        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("explorer.exe", $"\"{folder}\"") { UseShellExecute = true });
     }
 
     private void ApplyTitleBarTheme(string theme)

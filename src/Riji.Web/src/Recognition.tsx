@@ -80,7 +80,7 @@ export function RecognitionSettings({ state, section }: { state: Snapshot; secti
   </>;
 }
 
-function RecognitionJobs() {
+export function RecognitionJobs() {
   const [page, setPage] = useState<JobPage | null>(null);
   const [offset, setOffset] = useState(0);
   const [busy, setBusy] = useState(false);
