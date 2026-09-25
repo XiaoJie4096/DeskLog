@@ -62,6 +62,7 @@ public sealed class MainWindow : Window
         if (offlineReview && profile != "Test") throw new ArgumentException("离线验证仅允许独立测试目录。");
         this.offlineReview = offlineReview;
         aiHttp = offlineReview ? new(offlineHandler) : new(new System.Net.Http.HttpClientHandler { AllowAutoRedirect = false });
+        aiHttp.Timeout = TimeSpan.FromMinutes(6);
         this.dataDir = dataDir; this.profile = profile;
         appVersion = ReadAppVersion();
         diagnosticLog = new(dataDir);

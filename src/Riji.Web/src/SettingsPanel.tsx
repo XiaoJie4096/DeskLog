@@ -123,21 +123,23 @@ function AiProviderSettings({ state, busy, run }: { state: Snapshot; busy: boole
   const [endpoint, setEndpoint] = useState(current.endpoint ?? '');
   const [model, setModel] = useState(current.model ?? '');
   const [summaryModel, setSummaryModel] = useState(current.summaryModel ?? current.model ?? '');
+  const [summaryModelEdited, setSummaryModelEdited] = useState(Boolean(current.summaryModel && current.summaryModel !== current.model));
   const [contextK, setContextK] = useState(100);
   const [key, setKey] = useState('');
   const [models, setModels] = useState<{ id: string; contextK: number | null }[]>([]);
   const [message, setMessage] = useState('');
-  useEffect(() => { setEndpoint(current.endpoint ?? ''); setModel(current.model ?? ''); setSummaryModel(current.summaryModel ?? current.model ?? ''); }, [current.endpoint, current.model, current.summaryModel]);
+  useEffect(() => { setEndpoint(current.endpoint ?? ''); setModel(current.model ?? ''); setSummaryModel(current.summaryModel ?? current.model ?? ''); setSummaryModelEdited(Boolean(current.summaryModel && current.summaryModel !== current.model)); }, [current.endpoint, current.model, current.summaryModel]);
   const readModels = async () => { setMessage(''); try { const items = await command<typeof models>('models', { endpoint, key }); setModels(items); setMessage(`已读取 ${items.length} 个模型`); } catch (error) { setMessage(error instanceof Error ? error.message : '读取模型失败'); } };
-  const save = (type: 'saveAi' | 'testAi') => run(type, { endpoint, model, summaryModel, contextK, key }, type === 'saveAi' ? 'AI 提供方配置已保存。' : '真实截图和两个模型验证成功，配置已启用。');
+  const save = (type: 'saveAi' | 'testAi') => run(type, { endpoint, model, summaryModel: summaryModelEdited ? summaryModel : model, contextK, key }, type === 'saveAi' ? 'AI 提供方配置已保存。' : '真实截图和两个模型验证成功，配置已启用。');
   return <Section title="连接配置">
     <p>{current.configured ? `当前已配置：${current.endpoint} · ${current.model}` : '尚未配置 AI 提供方。'}</p>
     {message && <p role="status" className="settings-note">{message}</p>}
     <label className="settings-field">接口地址<input type="url" required value={endpoint} onChange={event => setEndpoint(event.target.value)} disabled={busy} /></label>
     <label className="settings-field">API Key<input type="password" autoComplete="off" required={!current.configured} value={key} placeholder={current.configured ? '已保存，留空沿用' : '请输入 API Key'} onChange={event => setKey(event.target.value)} disabled={busy} /><small>已保存的 Key 不会回传到界面；留空会沿用本机保存的 Key。</small></label>
     <div className="settings-actions"><button disabled={busy || !endpoint || (!key && !current.configured)} onClick={() => void readModels()}>获取模型信息</button></div>
-    <label className="settings-field">识图模型{models.length ? <select value={model} onChange={event => { setModel(event.target.value); const found = models.find(item => item.id === event.target.value); if (found?.contextK) setContextK(found.contextK); }} disabled={busy}>{models.map(item => <option key={item.id} value={item.id}>{item.id}</option>)}</select> : <input required value={model} onChange={event => setModel(event.target.value)} disabled={busy} />}</label>
-    <label className="settings-field">总结（对话）模型{models.length ? <select value={summaryModel} onChange={event => setSummaryModel(event.target.value)} disabled={busy}>{models.map(item => <option key={item.id} value={item.id}>{item.id}</option>)}</select> : <input value={summaryModel} onChange={event => setSummaryModel(event.target.value)} disabled={busy} />}<small>用于时段摘要、AI 总结和后续对话。</small></label>
+    {models.length > 0 && <datalist id="ai-provider-models">{models.map(item => <option key={item.id} value={item.id} />)}</datalist>}
+    <label className="settings-field">识图模型<input required maxLength={200} list="ai-provider-models" value={model} onChange={event => { const value = event.target.value; setModel(value); if (!summaryModelEdited) setSummaryModel(value); const found = models.find(item => item.id === value); if (found?.contextK) setContextK(found.contextK); }} disabled={busy} /></label>
+    <label className="settings-field">总结（对话）模型<input maxLength={200} list="ai-provider-models" value={summaryModel} onChange={event => { setSummaryModelEdited(true); setSummaryModel(event.target.value); }} disabled={busy} /><small>用于时段摘要、AI 总结和后续对话；未单独修改时自动跟随识图模型。</small></label>
     <label className="settings-field">上下文长度（K token）<input type="number" min="4" max="150" value={contextK} onChange={event => setContextK(Number(event.target.value))} disabled={busy} /><small>接口提供上下文长度时，选择模型会自动填入。</small></label>
     <div className="settings-actions"><button disabled={busy || !endpoint || !model} onClick={() => void save('saveAi')}>保存配置</button><button className="primary" disabled={busy || current.busy || !endpoint || !model} onClick={() => void save('testAi')}>发送真实截图并验证配置</button></div>
   </Section>;

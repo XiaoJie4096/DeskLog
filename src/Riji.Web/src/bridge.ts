@@ -47,7 +47,8 @@ export function command<T = void>(type: string, payload: Record<string, unknown>
   return new Promise<T>((resolve, reject) => {
     if (!window.chrome?.webview) { reject(new Error('请通过日迹桌面应用打开，浏览器预览无法读取电脑活动。')); return; }
     const id = crypto.randomUUID();
-    const timeout = setTimeout(() => { waiting.delete(id); reject(new Error('后台响应超时，请检查运行状态；生成任务可从历史列表查看。')); }, ['hourSummaryGenerate', 'summaryGenerate', 'summaryRetry', 'summaryChat', 'exportData', 'importData', 'clearData'].includes(type) ? 3600000 : type === 'testAi' ? 100000 : 6000);
+    // Configuration verification makes a 90-second image request, then a text request of up to five minutes.
+    const timeout = setTimeout(() => { waiting.delete(id); reject(new Error('后台响应超时，请检查运行状态；生成任务可从历史列表查看。')); }, ['hourSummaryGenerate', 'summaryGenerate', 'summaryRetry', 'summaryChat', 'exportData', 'importData', 'clearData'].includes(type) ? 3600000 : type === 'testAi' ? 420000 : 6000);
     waiting.set(id, { resolve: value => resolve(value as T), reject, timeout });
     window.chrome.webview.postMessage({ id, type, ...payload });
   });
