@@ -41,7 +41,8 @@ public sealed record CaptureSettings(bool Enabled = false, int IntervalSeconds =
 public enum JobStatus { Capturing, Pending, Running, Retry, Succeeded, Manual, Invalid }
 public sealed record RecognitionJob(string Id, DateTimeOffset Utc, string Day, int IntervalSeconds, string Image,
     Category[] Categories, JobStatus Status = JobStatus.Capturing, int Attempts = 0, DateTimeOffset? RetryAt = null,
-    string? Error = null, bool CleanupPending = false, string? Prompt = null, RecognitionContext? Context = null, bool WaitForConnection = false);
+    string? Error = null, bool CleanupPending = false, string? Prompt = null, RecognitionContext? Context = null,
+    bool WaitForConnection = false, RecognitionResult? SavedResult = null);
 public sealed record RecognitionResult(string Description, string CategoryId, double Confidence);
 public sealed record ActivityRecord(string Id, DateTimeOffset Utc, string Day, int Seconds, string Description, Category Category, double Confidence, string? AppName = null, string? BrowserTitle = null, string? Website = null);
 public sealed record JobHealth(string Status, int Count);

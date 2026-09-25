@@ -35,11 +35,36 @@ public sealed partial class LocalStore
         return jobs;
     }
 
-    public RecognitionJob? NextJob(DateTimeOffset now)
+    public RecognitionJob? NextJob(DateTimeOffset now, bool retryOnly = false)
     {
         using var command = connection.CreateCommand();
-        command.CommandText = "SELECT payload FROM recognition_jobs WHERE status IN ('Pending','Retry') AND retry_utc<=$now AND COALESCE(json_extract(payload,'$.WaitForConnection'),0)=0 ORDER BY utc LIMIT 1";
+        command.CommandText = retryOnly
+            ? "SELECT payload FROM recognition_jobs WHERE status='Retry' AND retry_utc<=$now AND COALESCE(json_extract(payload,'$.WaitForConnection'),0)=0 ORDER BY retry_utc,utc LIMIT 1"
+            : "SELECT payload FROM recognition_jobs WHERE status='Pending' AND retry_utc<=$now ORDER BY utc LIMIT 1";
         command.Parameters.AddWithValue("$now", now.ToString("O"));
+        return command.ExecuteScalar() is string json ? JsonSerializer.Deserialize<RecognitionJob>(json) : null;
+    }
+
+    public List<RecognitionJob> WaitingConnectionJobs(int limit)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT payload FROM recognition_jobs WHERE status='Retry' AND json_extract(payload,'$.WaitForConnection')=1 ORDER BY utc LIMIT $limit";
+        command.Parameters.AddWithValue("$limit", limit);
+        using var reader = command.ExecuteReader(); List<RecognitionJob> jobs = [];
+        while (reader.Read()) jobs.Add(JsonSerializer.Deserialize<RecognitionJob>(reader.GetString(0))!);
+        return jobs;
+    }
+
+    public int RetryCount()
+    {
+        using var command = connection.CreateCommand(); command.CommandText = "SELECT COUNT(*) FROM recognition_jobs WHERE status='Retry'";
+        return Convert.ToInt32(command.ExecuteScalar());
+    }
+
+    public RecognitionJob? OldestRetry()
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT payload FROM recognition_jobs WHERE status='Retry' ORDER BY utc LIMIT 1";
         return command.ExecuteScalar() is string json ? JsonSerializer.Deserialize<RecognitionJob>(json) : null;
     }
 
@@ -82,7 +107,7 @@ public sealed partial class LocalStore
         command.Parameters.AddWithValue("$payload", JsonSerializer.Serialize(record)); command.ExecuteNonQuery();
         using var done = connection.CreateCommand(); done.Transaction = transaction;
         done.CommandText = "UPDATE recognition_jobs SET status='Succeeded',payload=$payload WHERE id=$id";
-        done.Parameters.AddWithValue("$payload", JsonSerializer.Serialize(job with { Status = JobStatus.Succeeded, Error = null, CleanupPending = true }));
+        done.Parameters.AddWithValue("$payload", JsonSerializer.Serialize(job with { Status = JobStatus.Succeeded, Error = null, CleanupPending = true, SavedResult = null }));
         done.Parameters.AddWithValue("$id", job.Id); done.ExecuteNonQuery(); transaction.Commit();
     }
 

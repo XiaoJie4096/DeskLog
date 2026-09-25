@@ -260,6 +260,43 @@ public sealed class RecognitionTests
         Assert.DoesNotContain(fixture.Store.JobCounts(), item => item.Status == "Invalid");
     }
 
+    [Fact] public async Task ServiceFailureStopsAfterFifthAttempt()
+    {
+        using var fixture = new Fixture(); var handler = new Handler(_ => new(HttpStatusCode.TooManyRequests));
+        using var pipeline = fixture.Pipeline(handler); pipeline.Configure(new(true, IntervalSeconds: 300), Epoch);
+        await pipeline.Pulse(Epoch.AddSeconds(300));
+        var id = Assert.Single(fixture.Store.Jobs(JobStatus.Retry)).Id;
+        for (var attempt = 2; attempt <= 5; attempt++)
+        {
+            var retry = Assert.Single(fixture.Store.Jobs(JobStatus.Retry));
+            if (attempt == 5) pipeline.Configure(new(true, IntervalSeconds: 300), retry.RetryAt!.Value);
+            await pipeline.Pulse(retry.RetryAt!.Value);
+        }
+        var invalid = Assert.Single(fixture.Store.Jobs(JobStatus.Invalid));
+        Assert.Equal(id, invalid.Id);
+        Assert.Equal(5, invalid.Attempts);
+        Assert.Equal(5, handler.Calls);
+        Assert.Empty(fixture.Store.Jobs(JobStatus.Retry));
+        Assert.False(File.Exists(Path.Combine(fixture.Folder, "Screenshots", invalid.Image)));
+    }
+
+    [Fact] public async Task FailedInvalidStateWriteRetainsExhaustedDecision()
+    {
+        using var fixture = new Fixture(); var handler = new Handler(_ => new(HttpStatusCode.TooManyRequests));
+        using var database = new SqliteConnection("Data Source=" + fixture.Store.Path); database.Open();
+        void Sql(string sql) { using var command = database.CreateCommand(); command.CommandText = sql; command.ExecuteNonQuery(); }
+        Sql("CREATE TRIGGER fail_invalid BEFORE UPDATE ON recognition_jobs WHEN NEW.status='Invalid' BEGIN SELECT RAISE(FAIL,'injected'); END");
+        using var pipeline = fixture.Pipeline(handler); pipeline.Configure(new(true, MaxAttempts: 1), Epoch);
+        await pipeline.Pulse(Epoch.AddMinutes(1));
+        Assert.Single(fixture.Store.Jobs(JobStatus.Running));
+        Sql("DROP TRIGGER fail_invalid");
+        await pipeline.Pulse(Epoch.AddMinutes(1).AddSeconds(1));
+        Assert.Equal(1, handler.Calls);
+        Assert.Single(fixture.Store.Jobs(JobStatus.Invalid));
+        Assert.Empty(fixture.Store.Jobs(JobStatus.Retry));
+        Assert.Empty(Directory.GetFiles(Path.Combine(fixture.Folder, "Screenshots"), "*.png"));
+    }
+
     [Fact] public void InvalidCategoryChangesKeepPreviousConfiguration()
     {
         using var fixture = new Fixture(); using var pipeline = fixture.Pipeline(new Handler(_ => Success()));
@@ -315,11 +352,13 @@ public sealed class RecognitionTests
         using var connection = new SqliteConnection("Data Source=" + fixture.Store.Path); connection.Open();
         using (var command = connection.CreateCommand()) { command.CommandText = "CREATE TRIGGER fail_record BEFORE INSERT ON records BEGIN SELECT RAISE(FAIL,'injected'); END"; command.ExecuteNonQuery(); }
         using var pipeline = fixture.Pipeline(handler); pipeline.Configure(new(true), Epoch); await pipeline.Pulse(Epoch.AddSeconds(60));
-        Assert.Empty(fixture.Store.Records("2026-09-10")); Assert.Single(fixture.Store.Jobs(JobStatus.Manual));
+        Assert.Empty(fixture.Store.Records("2026-09-10"));
+        Assert.NotNull(Assert.Single(fixture.Store.Jobs(JobStatus.Retry)).SavedResult);
         Assert.Single(Directory.GetFiles(Path.Combine(fixture.Folder, "Screenshots"), "*.png"));
         using (var command = connection.CreateCommand()) { command.CommandText = "DROP TRIGGER fail_record"; command.ExecuteNonQuery(); }
-        pipeline.RetryFailed(); await pipeline.Pulse(Epoch.AddSeconds(61));
+        await pipeline.Pulse(Epoch.AddSeconds(81));
         Assert.Single(fixture.Store.Records("2026-09-10"));
+        Assert.Equal(1, handler.Calls);
     }
 
     [Fact] public async Task FailedCandidateDoesNotReplaceWorkingConfiguration()
@@ -369,11 +408,94 @@ public sealed class RecognitionTests
     {
         public readonly TaskCompletionSource Started = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public readonly TaskCompletionSource Release = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        public int Calls;
+        private int calls;
+        public int Calls => Volatile.Read(ref calls);
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
         {
-            Calls++; Started.TrySetResult(); await Release.Task.WaitAsync(token); return Success();
+            Interlocked.Increment(ref calls); Started.TrySetResult(); await Release.Task.WaitAsync(token); return Success();
         }
+    }
+
+    [Fact] public async Task CaptureKeepsItsScheduleUpToTenConcurrentRequestsAndSkipsWhenFull()
+    {
+        using var fixture = new Fixture(); using var handler = new CompletingHandler();
+        var captures = 0;
+        using var pipeline = fixture.Pipeline(handler, capture: file =>
+        {
+            captures++;
+            File.WriteAllBytes(file, [137, 80, 78, 71]);
+        });
+        pipeline.Configure(new(true), Epoch);
+        var running = Enumerable.Range(1, 11).Select(minute => pipeline.Pulse(Epoch.AddMinutes(minute))).ToArray();
+        Assert.Equal(10, captures);
+        Assert.True(SpinWait.SpinUntil(() => handler.Calls == 10, TimeSpan.FromSeconds(5)));
+        Assert.Equal(10, handler.Calls);
+        Assert.Equal(10, fixture.Store.Jobs(JobStatus.Running).Count);
+        Assert.Empty(fixture.Store.Jobs(JobStatus.Pending));
+        handler.Release.SetResult();
+        await Task.WhenAll(running);
+        await pipeline.Pulse(Epoch.AddMinutes(12));
+        Assert.Equal(11, captures);
+        Assert.Equal(11, fixture.Store.Records("2026-09-10").Count);
+    }
+
+    [Fact] public async Task ReadyRetriesFillOnlyUntilTotalRunningReachesSix()
+    {
+        using var fixture = new Fixture(); using var handler = new CompletingHandler();
+        Directory.CreateDirectory(Path.Combine(fixture.Folder, "Screenshots"));
+        for (var index = 0; index < 8; index++)
+        {
+            var id = Guid.NewGuid().ToString("N");
+            var job = new RecognitionJob(id, Epoch.AddSeconds(index), "2026-09-10", 60, id + ".png",
+                Category.Defaults, JobStatus.Retry, Attempts: 1);
+            fixture.Store.SaveJob(job);
+            File.WriteAllBytes(Path.Combine(fixture.Folder, "Screenshots", job.Image), [137, 80, 78, 71]);
+        }
+        using var pipeline = fixture.Pipeline(handler);
+        pipeline.Configure(new(true), Epoch);
+        var first = pipeline.Pulse(Epoch.AddMinutes(1));
+        Assert.True(SpinWait.SpinUntil(() => handler.Calls == 7, TimeSpan.FromSeconds(5)));
+        Assert.Equal(7, handler.Calls);
+        Assert.Equal(7, fixture.Store.Jobs(JobStatus.Running).Count);
+        var second = pipeline.Pulse(Epoch.AddMinutes(2));
+        Assert.True(SpinWait.SpinUntil(() => handler.Calls == 8, TimeSpan.FromSeconds(5)));
+        Assert.Equal(8, handler.Calls);
+        Assert.Equal(8, fixture.Store.Jobs(JobStatus.Running).Count);
+        Assert.Equal(2, fixture.Store.Jobs(JobStatus.Retry).Count);
+        handler.Release.SetResult();
+        await Task.WhenAll(first, second);
+    }
+
+    [Fact] public async Task NetworkRetryDoesNotStopScheduledCaptures()
+    {
+        using var fixture = new Fixture(); using var handler = new NetworkHandler();
+        using var pipeline = fixture.Pipeline(handler);
+        pipeline.Configure(new(true), Epoch);
+        await pipeline.Pulse(Epoch.AddMinutes(1));
+        await pipeline.Pulse(Epoch.AddMinutes(2));
+        Assert.Equal(2, handler.Requests);
+        Assert.Equal(2, fixture.Store.Jobs(JobStatus.Retry).Count);
+        Assert.Equal(2, Directory.GetFiles(Path.Combine(fixture.Folder, "Screenshots"), "*.png").Length);
+    }
+
+    [Fact] public async Task RetryQueueKeepsNewestTwoHundredFortyJobs()
+    {
+        using var fixture = new Fixture(); using var pipeline = fixture.Pipeline(new Handler(_ => Success()));
+        Directory.CreateDirectory(Path.Combine(fixture.Folder, "Screenshots"));
+        string? oldestId = null;
+        for (var index = 0; index < 241; index++)
+        {
+            var id = Guid.NewGuid().ToString("N");
+            oldestId ??= id;
+            var job = new RecognitionJob(id, Epoch.AddSeconds(index), "2026-09-10", 60, id + ".png",
+                Category.Defaults, JobStatus.Retry, Attempts: 1);
+            fixture.Store.SaveJob(job);
+            File.WriteAllBytes(Path.Combine(fixture.Folder, "Screenshots", job.Image), [137, 80, 78, 71]);
+        }
+        await pipeline.Pulse(Epoch.AddMinutes(5));
+        Assert.Equal(240, fixture.Store.Jobs(JobStatus.Retry).Count);
+        Assert.Equal(oldestId, Assert.Single(fixture.Store.Jobs(JobStatus.Invalid)).Id);
+        Assert.False(File.Exists(Path.Combine(fixture.Folder, "Screenshots", oldestId + ".png")));
     }
 
     [Theory]
@@ -415,7 +537,7 @@ public sealed class RecognitionTests
         {
             pipeline.Configure(new(true), Epoch); await pipeline.Pulse(Epoch.AddSeconds(60));
             Assert.Empty(fixture.Store.Records("2026-09-10"));
-            Assert.Single(fixture.Store.Jobs(JobStatus.Manual));
+            Assert.NotNull(Assert.Single(fixture.Store.Jobs(JobStatus.Retry)).SavedResult);
             Assert.Single(Directory.GetFiles(Path.Combine(fixture.Folder, "Screenshots"), "*.png"));
         Assert.Contains("保存识别任务或结果失败", pipeline.Error);
             var report = File.ReadAllText(Directory.GetFiles(Path.Combine(fixture.Folder, "Logs"), "recognition-failure-*.html").Single());
@@ -427,8 +549,8 @@ public sealed class RecognitionTests
         using var reopened = new LocalStore(fixture.Store.Path);
         using var recovered = new RecognitionPipeline(reopened, new(new HttpClient(handler)), fixture.Folder,
             _ => throw new InvalidOperationException("Recovery must use the original screenshot"), () => true, x => x, x => x);
-        recovered.RetryFailed(); await recovered.Pulse(Epoch.AddSeconds(61)); await recovered.Pulse(Epoch.AddSeconds(62));
-        Assert.Equal(2, handler.Calls);
+        await recovered.Pulse(Epoch.AddSeconds(81));
+        Assert.Equal(1, handler.Calls);
         Assert.Equal(60, Assert.Single(reopened.Records("2026-09-10")).Seconds);
         Assert.False(Assert.Single(reopened.Jobs(JobStatus.Succeeded)).CleanupPending);
         Assert.Empty(Directory.GetFiles(Path.Combine(fixture.Folder, "Screenshots"), "*.png"));
