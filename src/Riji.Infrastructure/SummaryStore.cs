@@ -3,10 +3,21 @@ using Riji.Core;
 
 namespace Riji.Infrastructure;
 
-public sealed record SummaryListEntry(string Id, SummaryRange Range, DateTimeOffset Created, GenerationState State, string? Error, int SourceCount, int CompletedBatches, bool Hourly = false, bool Automatic = false, string? Text = null);
+public sealed record SummaryListEntry(string Id, SummaryRange Range, DateTimeOffset Created, GenerationState State, string? Error, int SourceCount, int CompletedBatches, bool Hourly = false, bool Automatic = false, string? Text = null,
+    DateTimeOffset? RetryAt = null, bool WaitForConnection = false, DateTimeOffset? ChatRetryAt = null, bool ChatWaitForConnection = false);
 
 public sealed partial class LocalStore
 {
+    private static SummaryListEntry Header(SummaryDocument summary)
+    {
+        var chat = summary.Conversation?.LastOrDefault();
+        return new(summary.Id, summary.Range, summary.Created, summary.State, summary.Error, summary.Sources.Length,
+            summary.Calls?.Count(call => call.Result is not null) ?? 0, summary.Hourly, summary.Automatic,
+            summary.Hourly ? summary.Text : null, summary.RetryAt, summary.WaitForConnection,
+            chat?.State == GenerationState.Failed ? chat.RetryAt : null,
+            chat?.State == GenerationState.Failed && chat.WaitForConnection);
+    }
+
     private void InitializeSummaries()
     {
         Execute("CREATE TABLE IF NOT EXISTS summaries(id TEXT PRIMARY KEY,created TEXT NOT NULL,payload TEXT NOT NULL); CREATE TABLE IF NOT EXISTS summary_headers(id TEXT PRIMARY KEY REFERENCES summaries(id) ON DELETE CASCADE,created TEXT NOT NULL,payload TEXT NOT NULL);");
@@ -18,7 +29,7 @@ public sealed partial class LocalStore
             using var insert = connection.CreateCommand();
             insert.CommandText = "INSERT INTO summary_headers VALUES($id,$created,$payload)";
             insert.Parameters.AddWithValue("$id", summary.Id); insert.Parameters.AddWithValue("$created", summary.Created.ToString("O"));
-            insert.Parameters.AddWithValue("$payload", JsonSerializer.Serialize(new SummaryListEntry(summary.Id, summary.Range, summary.Created, summary.State, summary.Error, summary.Sources.Length, summary.Calls?.Count(call => call.Result is not null) ?? 0, summary.Hourly, summary.Automatic, summary.Hourly ? summary.Text : null)));
+            insert.Parameters.AddWithValue("$payload", JsonSerializer.Serialize(Header(summary)));
             insert.ExecuteNonQuery();
         }
     }
@@ -30,7 +41,7 @@ public sealed partial class LocalStore
         command.CommandText = "INSERT INTO summaries VALUES($id,$created,$payload) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload; INSERT INTO summary_headers VALUES($id,$created,$header) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload";
         command.Parameters.AddWithValue("$id", summary.Id); command.Parameters.AddWithValue("$created", summary.Created.ToString("O"));
         command.Parameters.AddWithValue("$payload", JsonSerializer.Serialize(summary));
-        command.Parameters.AddWithValue("$header", JsonSerializer.Serialize(new SummaryListEntry(summary.Id, summary.Range, summary.Created, summary.State, summary.Error, summary.Sources.Length, summary.Calls?.Count(call => call.Result is not null) ?? 0, summary.Hourly, summary.Automatic, summary.Hourly ? summary.Text : null)));
+        command.Parameters.AddWithValue("$header", JsonSerializer.Serialize(Header(summary)));
         command.ExecuteNonQuery(); transaction.Commit();
     }
 

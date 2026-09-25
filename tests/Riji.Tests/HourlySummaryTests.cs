@@ -63,7 +63,7 @@ public sealed class HourlySummaryTests
         Assert.Null(f.Store.Read<object>("summary-draft"));
     }
 
-    [Fact] public async Task AutomaticWorkWaitsForManualRequestThenStillOverrides()
+    [Fact] public async Task AutomaticWorkRunsAlongsideManualRequest()
     {
         using var f = new Fixture(); f.Add(1);
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -71,7 +71,7 @@ public sealed class HourlySummaryTests
         var manual = f.Hourly.Generate(Epoch);
         Assert.True(f.Summary.Busy);
         await f.Hourly.Pulse(Epoch.AddHours(1));
-        Assert.Equal(1, f.Handler.Calls);
+        Assert.Equal(2, f.Handler.Calls);
         release.SetResult(); await manual;
         await f.Hourly.Pulse(Epoch.AddHours(1).AddSeconds(2));
         Assert.Equal(2, f.Handler.Calls); Assert.True(f.Store.SummaryHeaders()[0].Automatic);
@@ -87,6 +87,31 @@ public sealed class HourlySummaryTests
         Assert.Equal(GenerationState.Failed, f.Store.SummaryHeaders()[0].State);
         Assert.Equal("摘要 1", f.Store.Summary(manual).Text);
         Assert.Equal(GenerationState.Succeeded, f.Store.Summary(manual).State);
+    }
+
+    [Fact] public async Task FailedHourDoesNotBlockTheNextHourAndRetriesAfterRestart()
+    {
+        using var f = new Fixture(); f.Add(1); f.Add(61);
+        f.Handler.Respond = (n, _) => Task.FromResult(n == 1
+            ? new HttpResponseMessage(HttpStatusCode.ServiceUnavailable) : Reply("摘要 " + n));
+        await f.Hourly.Pulse(Epoch.AddHours(2));
+        await WaitUntil(() => f.Store.SummaryHeaders().Count == 2
+            && f.Store.SummaryHeaders().All(item => item.State != GenerationState.Running));
+        var first = f.Store.SummaryHeaders().Single(item => item.Range.Start == Epoch);
+        var second = f.Store.SummaryHeaders().Single(item => item.Range.Start == Epoch.AddHours(1));
+        Assert.Equal(GenerationState.Failed, first.State);
+        Assert.Equal(GenerationState.Succeeded, second.State);
+        Assert.Equal(Epoch.AddHours(2), f.Store.Read<DateTimeOffset?>(HourlySummaryService.CursorKey));
+        f.Reopen(Epoch.AddHours(2));
+        await f.Summary.Pulse(DateTimeOffset.UtcNow.AddMinutes(1));
+        await WaitUntil(() => f.Store.Summary(first.Id).State == GenerationState.Succeeded);
+        Assert.Equal(2, f.Store.SummaryHeaders().Count);
+    }
+
+    private static async Task WaitUntil(Func<bool> condition)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        while (!condition()) await Task.Delay(10, timeout.Token);
     }
 
     [Fact] public async Task SleepCatchupIncludesMidnightAndSkipsEmptyHours()

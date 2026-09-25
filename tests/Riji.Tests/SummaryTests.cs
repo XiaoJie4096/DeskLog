@@ -196,7 +196,7 @@ public sealed class SummaryTests
         Assert.Contains("终点9", string.Join("", completed.Calls!.Where(call => call.Id.StartsWith("0:")).Select(call => call.Prompt)));
     }
 
-    [Fact] public async Task MergeFailureResumesAfterRestartFromFrozenBatchesAndRejectsModelChanges()
+    [Fact] public async Task MergeFailureResumesAfterRestartUsingCurrentModel()
     {
         using var fixture = new Fixture();
         for (var index = 0; index < 10; index++) fixture.Add(index, new string('文', 150) + "记录" + index);
@@ -212,13 +212,11 @@ public sealed class SummaryTests
         var changed = new SummaryService(fixture.Store, new(new HttpClient(fixture.Http)),
             () => (fixture.Config with { Model = "another-model" }, "test-key"));
         var before = fixture.Http.Prompts.Count;
-        await Assert.ThrowsAsync<ArgumentException>(() => changed.Retry(id));
-        Assert.Equal(before, fixture.Http.Prompts.Count);
-        service = fixture.Service(); fixture.Http.Respond = (_, _) => Task.FromResult(Reply("完整合并结果"));
-        await service.Retry(id); fixture.Reopen();
+        fixture.Http.Respond = (_, _) => Task.FromResult(Reply("完整合并结果"));
+        await changed.Retry(id); fixture.Reopen();
         var completed = fixture.Store.Summary(id);
         Assert.Equal(GenerationState.Succeeded, completed.State); Assert.Equal("完整合并结果", completed.Text);
-        Assert.Equal(before + 1, fixture.Http.Prompts.Count);
+        Assert.True(fixture.Http.Prompts.Count > before);
         Assert.Equal(failed.DataCutoff, completed.DataCutoff); Assert.Equal(failed.Sources, completed.Sources);
         Assert.DoesNotContain("失败后才到达的新记录", string.Join("\n", fixture.Http.Prompts));
         foreach (var call in successful)
@@ -259,6 +257,137 @@ public sealed class SummaryTests
         Assert.Equal(GenerationState.Cancelled, fixture.Store.Summary(id).State); Assert.Null(fixture.Store.Summary(id).Text);
         fixture.Http.Respond = (_, _) => Task.FromResult(Reply("恢复完成")); await service.Retry(id);
         Assert.Equal("恢复完成", fixture.Store.Summary(id).Text);
+    }
+
+    [Fact] public async Task BatchRequestsLeaveOneSlotForAnAutomaticHour()
+    {
+        using var fixture = new Fixture();
+        for (var index = 0; index < 50; index++) fixture.Add(index, new string('文', 180) + index);
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var active = 0; var peak = 0;
+        fixture.Http.Respond = async (_, token) =>
+        {
+            var running = Interlocked.Increment(ref active);
+            lock (fixture.Http) peak = Math.Max(peak, running);
+            if (running == 5) started.TrySetResult();
+            try { await release.Task.WaitAsync(token); return Reply("本批记录了阅读活动。"); }
+            finally { Interlocked.Decrement(ref active); }
+        };
+        var service = fixture.Service();
+        var manual = service.Generate(Range(), "完整回顾");
+        var automaticId = await service.Generate(Range(), "小时摘要", hourly: true, automatic: true);
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(5, peak);
+        Assert.Equal(GenerationState.Running, fixture.Store.Summary(automaticId).State);
+        release.SetResult(); await manual;
+        await service.Shutdown();
+        Assert.Equal(GenerationState.Succeeded, fixture.Store.Summary(automaticId).State);
+    }
+
+    [Fact] public async Task RetryableServiceFailureStopsAfterFiveAttempts()
+    {
+        using var fixture = new Fixture(); fixture.Add(1);
+        fixture.Http.Respond = (_, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.ServiceUnavailable));
+        var service = fixture.Service(); var id = await service.Generate(Range(), "回顾");
+        for (var attempt = 1; attempt < 5; attempt++)
+        {
+            await service.Pulse(DateTimeOffset.UtcNow.AddHours(1));
+            await SpinUntil(() => !service.Busy);
+        }
+        var failed = fixture.Store.Summary(id);
+        Assert.Equal(5, failed.Attempts);
+        Assert.Null(failed.RetryAt);
+        Assert.False(failed.WaitForConnection);
+        Assert.Equal(5, fixture.Http.Prompts.Count);
+    }
+
+    [Fact] public async Task RetryExpiresAfterTwentyFourHoursWithoutDeletingSummary()
+    {
+        using var fixture = new Fixture(); fixture.Add(1);
+        fixture.Http.Respond = (_, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.ServiceUnavailable));
+        var service = fixture.Service(); var id = await service.Generate(Range(), "回顾");
+        var failed = fixture.Store.Summary(id);
+        fixture.Store.SaveSummary(failed with { FirstFailureAt = DateTimeOffset.UtcNow.AddHours(-25), RetryAt = DateTimeOffset.UtcNow });
+        await service.Pulse(DateTimeOffset.UtcNow);
+        var expired = fixture.Store.Summary(id);
+        Assert.Equal(GenerationState.Failed, expired.State);
+        Assert.Null(expired.RetryAt);
+        Assert.Single(fixture.Http.Prompts);
+    }
+
+    [Fact] public async Task InitialDatabaseFailureRecoversWithoutLosingTheSummary()
+    {
+        using var fixture = new Fixture(); fixture.Add(1);
+        using var connection = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = fixture.Store.Path }.ToString());
+        connection.Open();
+        using (var trigger = connection.CreateCommand())
+        {
+            trigger.CommandText = "CREATE TRIGGER reject_summary_insert BEFORE INSERT ON summaries BEGIN SELECT RAISE(FAIL,'storage unavailable'); END";
+            trigger.ExecuteNonQuery();
+        }
+        var service = fixture.Service();
+        var id = await service.Generate(Range(), "数据库恢复后继续生成");
+        Assert.Empty(fixture.Store.Summaries());
+        using (var remove = connection.CreateCommand())
+        {
+            remove.CommandText = "DROP TRIGGER reject_summary_insert";
+            remove.ExecuteNonQuery();
+        }
+        await service.Pulse(DateTimeOffset.UtcNow.AddHours(1));
+        await SpinUntil(() => !service.Busy);
+        Assert.Equal(GenerationState.Succeeded, fixture.Store.Summary(id).State);
+        Assert.Single(fixture.Http.Prompts);
+    }
+
+    [Fact] public async Task ConcurrentChatCannotAppendAnUnstartedTurn()
+    {
+        using var fixture = new Fixture(); fixture.Add(1);
+        var service = fixture.Service(); var id = await service.Generate(Range(), "回顾");
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        fixture.Http.Respond = async (_, token) =>
+        {
+            started.TrySetResult();
+            await release.Task.WaitAsync(token);
+            return Reply("答复");
+        };
+        var first = service.Chat(id, "第一个问题");
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.Chat(id, "第二个问题"));
+        Assert.Single(fixture.Store.Summary(id).Conversation!);
+        release.SetResult(); await first;
+        Assert.Equal(GenerationState.Succeeded, Assert.Single(fixture.Store.Summary(id).Conversation!).State);
+    }
+
+    [Fact] public async Task ChatDatabaseFailureRetriesAfterStorageRecovers()
+    {
+        using var fixture = new Fixture(); fixture.Add(1);
+        var service = fixture.Service(); var id = await service.Generate(Range(), "回顾");
+        using var connection = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = fixture.Store.Path }.ToString());
+        connection.Open();
+        using (var trigger = connection.CreateCommand())
+        {
+            trigger.CommandText = "CREATE TRIGGER reject_summary_update BEFORE UPDATE ON summaries BEGIN SELECT RAISE(FAIL,'storage unavailable'); END";
+            trigger.ExecuteNonQuery();
+        }
+        await service.Chat(id, "数据库恢复后回答");
+        Assert.Empty(fixture.Store.Summary(id).Conversation ?? []);
+        using (var remove = connection.CreateCommand())
+        {
+            remove.CommandText = "DROP TRIGGER reject_summary_update";
+            remove.ExecuteNonQuery();
+        }
+        await service.Pulse(DateTimeOffset.UtcNow.AddHours(1));
+        await SpinUntil(() => !service.Busy);
+        Assert.Equal(GenerationState.Succeeded, Assert.Single(fixture.Store.Summary(id).Conversation!).State);
+        Assert.Equal(2, fixture.Http.Prompts.Count);
+    }
+
+    private static async Task SpinUntil(Func<bool> ready)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        while (!ready()) await Task.Delay(10, timeout.Token);
     }
 
     [Fact] public async Task FailedChatKeepsQuestionAndRetryDoesNotDuplicateTurn()

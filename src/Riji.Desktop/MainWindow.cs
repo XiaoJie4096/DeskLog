@@ -201,6 +201,7 @@ public sealed class MainWindow : Window
             Commit(); Push();
             _ = recognition.Pulse(DateTimeOffset.UtcNow);
             _ = hourlySummaries.Pulse(DateTimeOffset.UtcNow);
+            _ = summaries.Pulse(DateTimeOffset.UtcNow);
             if (systemTest)
             {
                 WriteSystemTrace("tick");
@@ -285,17 +286,17 @@ public sealed class MainWindow : Window
                     if (form.Start.Length > 40 || form.End.Length > 40 || form.Prompt.Length > 10000) throw new ArgumentException("草稿内容过长。");
                     store.SaveValue("summary-form", form); break;
                 case "hourSummaryGenerate":
-                    value = await hourlySummaries.Generate(root.GetProperty("start").GetDateTimeOffset()); Push(); break;
+                    value = hourlySummaries.QueueGenerate(root.GetProperty("start").GetDateTimeOffset()); Push(); break;
                 case "summaryGenerate":
-                    value = await summaries.Generate(new(root.GetProperty("start").GetDateTimeOffset(), root.GetProperty("end").GetDateTimeOffset(), TimeZoneInfo.Local.Id), root.GetProperty("prompt").GetString()!);
+                    value = summaries.QueueGenerate(new(root.GetProperty("start").GetDateTimeOffset(), root.GetProperty("end").GetDateTimeOffset(), TimeZoneInfo.Local.Id), root.GetProperty("prompt").GetString()!);
                     Push(); break;
                 case "summaryDetail": value = store.Summary(root.GetProperty("summaryId").GetString()!); break;
                 case "summaryChatDraft": store.SaveChatDraft(root.GetProperty("summaryId").GetString()!, root.GetProperty("text").GetString()!); break;
-                case "summaryRetry": await summaries.Retry(root.GetProperty("summaryId").GetString()!); Push(); break;
+                case "summaryRetry": summaries.QueueRetry(root.GetProperty("summaryId").GetString()!); Push(); break;
                 case "summaryChat":
                     await summaries.Chat(root.GetProperty("summaryId").GetString()!, root.GetProperty("question").GetString()!, root.TryGetProperty("turnId", out var turnId) ? turnId.GetString() : null);
                     Push(); break;
-                case "summaryCancel": summaries.Cancel(); break;
+                case "summaryCancel": summaries.Cancel(root.TryGetProperty("summaryId", out var cancelSummary) ? cancelSummary.GetString() : null); break;
                 case "summaryPresets":
                     summaries.SavePresets(root.GetProperty("presets").Deserialize<PromptPreset[]>(json) ?? throw new ArgumentException("提示词预设无效。")); Push(); break;
                 case "exportData": await ExportBackup(); break;

@@ -15,11 +15,13 @@ public sealed record SummaryRange(DateTimeOffset Start, DateTimeOffset End, stri
 public sealed record ModelSnapshot(string Endpoint, string Model, string Identity, int InputBudget);
 public sealed record GenerationCall(string Id, string Prompt, string? Result = null);
 public sealed record ChatTurn(string Id, DateTimeOffset Created, string Question, string ActualPrompt, ModelSnapshot Model,
-    GenerationState State = GenerationState.Running, string? Reply = null, string? Error = null);
+    GenerationState State = GenerationState.Running, string? Reply = null, string? Error = null,
+    int Attempts = 0, DateTimeOffset? FirstFailureAt = null, DateTimeOffset? RetryAt = null, bool WaitForConnection = false);
 public sealed record SummaryDocument(string Id, SummaryRange Range, DateTimeOffset Created, DateTimeOffset DataCutoff,
     string Prompt, ActivityRecord[] Sources, ModelSnapshot Model, GenerationState State = GenerationState.Running,
     string? Text = null, string? Error = null, GenerationCall[]? Calls = null, ChatTurn[]? Conversation = null, string ChatDraft = "",
-    bool Hourly = false, bool Automatic = false, int PromptVersion = 0);
+    bool Hourly = false, bool Automatic = false, int PromptVersion = 0,
+    int Attempts = 0, DateTimeOffset? FirstFailureAt = null, DateTimeOffset? RetryAt = null, bool WaitForConnection = false);
 public sealed record PromptPreset(string Id, string Name, string Prompt)
 {
     public static PromptPreset[] Defaults => [

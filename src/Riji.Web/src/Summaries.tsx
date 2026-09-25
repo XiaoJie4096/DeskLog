@@ -49,7 +49,7 @@ export function Summaries({ state }: { state: Snapshot }) {
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const [revision, setRevision] = useState(0);
-  const busy = saving || state.summaryBusy;
+  const busy = saving;
   const current = state.summaries.find(item => item.id === selected);
   useEffect(() => {
     const timer = setTimeout(() => { void command('summaryForm', { form }).catch(error => setError(error.message)); }, 500);
@@ -60,7 +60,7 @@ export function Summaries({ state }: { state: Snapshot }) {
     let cancelled = false;
     if (selected) void command<SummaryDocument>('summaryDetail', { summaryId: selected }).then(value => { if (!cancelled) setDocument(value); }).catch(error => { if (!cancelled) setError(error.message); });
     return () => { cancelled = true; };
-  }, [selected, state.summaryBusy, revision]);
+  }, [selected, current?.state, current?.completedBatches, revision]);
   useEffect(() => { setDocument(null); }, [selected]);
   async function perform(type: string, payload: Record<string, unknown>) {
     setSaving(true); setError('');
@@ -89,7 +89,7 @@ export function Summaries({ state }: { state: Snapshot }) {
         <label>本次提示词<textarea required maxLength={10000} rows={5} value={form.prompt} onChange={e => setForm(value => ({ ...value, prompt: e.target.value }))} /></label>
         <div className="preset-save"><input aria-label="新预设名称" maxLength={40} placeholder="保存为自定义预设" value={presetName} onChange={e => setPresetName(e.target.value)} /><button type="button" disabled={busy || !presetName.trim() || !form.prompt.trim()} onClick={() => void perform('summaryPresets', { presets: [...state.summaryPresets, { id: crypto.randomUUID(), name: presetName.trim(), prompt: form.prompt }] })}>保存预设</button></div>
         <p className="notice">生成会将此范围内的活动描述发送至设置中的 AI 服务。每次生成保留独立来源快照；已有总结不会随迟到记录自动改变。</p>
-        <div className="summary-actions"><button className="primary" disabled={busy || !state.recognition.configured}>{busy ? '正在处理…' : '生成新的总结'}</button>{state.summaryBusy && <button type="button" onClick={() => void command('summaryCancel').catch(error => setError(error.message))}>取消生成</button>}</div>
+        <div className="summary-actions"><button className="primary" disabled={busy || !state.recognition.configured}>{busy ? '正在提交…' : '生成新的总结'}</button>{current?.state === 'Running' && <button type="button" onClick={() => void command('summaryCancel', { summaryId: selected }).catch(error => setError(error.message))}>取消当前任务</button>}</div>
         {!state.recognition.configured && <small>请先到设置中验证 AI 服务配置。当前不会发送请求。</small>}
         </div></div>
       </form>

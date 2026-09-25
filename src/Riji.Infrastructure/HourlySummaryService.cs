@@ -2,7 +2,7 @@ using Riji.Core;
 
 namespace Riji.Infrastructure;
 
-// Persist the next unfinished hour; serialize automatic work with manual AI requests.
+// Persist each hour before advancing the cursor so later hours can run while earlier ones retry.
 public sealed class HourlySummaryService
 {
     public const string CursorKey = "hourly-summary-cursor";
@@ -57,6 +57,13 @@ public sealed class HourlySummaryService
         return summaries.Generate(new(hour, hour.AddHours(1), zone.Id), Settings.HourlyPrompt ?? Prompt, hourly: true);
     }
 
+    public string QueueGenerate(DateTimeOffset start)
+    {
+        if (closing) throw new InvalidOperationException("正在退出或维护数据。");
+        var hour = HourStart(start, zone);
+        return summaries.QueueGenerate(new(hour, hour.AddHours(1), zone.Id), Settings.HourlyPrompt ?? Prompt, hourly: true);
+    }
+
     public async Task Pulse(DateTimeOffset now)
     {
         if (running || closing) return;
@@ -73,7 +80,7 @@ public sealed class HourlySummaryService
                 var settings = Settings;
                 if (!attempted && store.Records(cursor, end).Sum(record => record.Seconds) >= settings.HourlyMinimumMinutes * 60)
                 {
-                    if (!canRun() || summaries.Busy) return;
+                    if (!canRun()) return;
                     await summaries.Generate(new(cursor, end, zone.Id), settings.HourlyPrompt ?? Prompt, hourly: true, automatic: true);
                 }
                 store.SaveValue(CursorKey, end);
@@ -91,7 +98,8 @@ public sealed class HourlySummaryService
     public async Task Shutdown()
     {
         closing = true;
-        if (running) summaries.Cancel();
+        summaries.Cancel();
         while (running) await Task.Delay(25);
+        while (summaries.Busy) await Task.Delay(25);
     }
 }
