@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Riji.Infrastructure;
 using Xunit;
 
@@ -32,5 +33,25 @@ public sealed class DiagnosticLogTests
         Directory.CreateDirectory(folder); File.WriteAllText(Path.Combine(folder, "Logs"), "occupied");
         try { var log = new DiagnosticLog(folder); log.Failure(DiagnosticEvent.StorageCommit, new IOException()); Assert.True(log.WriteFailed); }
         finally { Directory.Delete(folder, true); }
+    }
+
+    [Fact] public void StartupTimingRecordsStagesWithoutUserContent()
+    {
+        var folder = Path.Combine(Path.GetTempPath(), "RijiLogs", Guid.NewGuid().ToString("N"));
+        try
+        {
+            var log = new DiagnosticLog(folder);
+            log.StartupTiming([new("database_open", 12.5, 20.5), new("webview_environment_wait", 30, 50.5, true)]);
+            using var document = JsonDocument.Parse(File.ReadAllText(Path.Combine(log.DirectoryPath, "diagnostic.jsonl")));
+            var entry = document.RootElement;
+            Assert.Equal("StartupTiming", entry.GetProperty("code").GetString());
+            Assert.Equal(50.5, entry.GetProperty("totalMs").GetDouble());
+            var stages = entry.GetProperty("stages");
+            Assert.Equal("database_open", stages[0].GetProperty("name").GetString());
+            Assert.Equal(12.5, stages[0].GetProperty("durationMs").GetDouble());
+            Assert.True(stages[1].GetProperty("asyncWait").GetBoolean());
+            Assert.False(log.WriteFailed);
+        }
+        finally { if (Directory.Exists(folder)) Directory.Delete(folder, true); }
     }
 }

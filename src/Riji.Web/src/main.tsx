@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { command, subscribe, type Mode, type Settings, type Snapshot } from './bridge';
 import './styles.css';
@@ -20,12 +20,14 @@ function App() {
   const [healthOpen, setHealthOpen] = useState(false);
   const [page, setPage] = useState<string>('home');
   const [state, setState] = useState<Snapshot | null>(null);
+  const lastLoadedDay = useRef<Snapshot | null>(null);
   const [day, setDay] = useState(localDay);
   const [error, setError] = useState('');
   const [dialog, setDialog] = useState(false);
   const [mode, setMode] = useState<Mode>('Default');
   const [minutes, setMinutes] = useState('30');
   const [busy, setBusy] = useState(false);
+  const dayState = state?.day === day ? state : lastLoadedDay.current;
   const run = async (type: string, payload: Record<string, unknown> = {}) => {
     setError(''); setBusy(true);
     try { await command(type, payload); return true; }
@@ -33,6 +35,7 @@ function App() {
     finally { setBusy(false); }
   };
   useEffect(() => subscribe(setState, setError), []);
+  useEffect(() => { if (state?.day === day) lastLoadedDay.current = state; }, [state, day]);
   useEffect(() => { if (page === 'home' && state?.today) setDay(state.today); }, [page, state?.today]);
   useEffect(() => { if (state?.today) setDay(state.today); }, [state?.settings.nightMode, state?.settings.dayStartHour]);
   useEffect(() => { void run('snapshot', { day }); }, [day]);
@@ -46,16 +49,15 @@ function App() {
     <main className={page === 'settings' ? 'settings-page' : ''}>
       {state?.diagnosticLogFailed && <div role="alert" className="error">故障日志写入失败，请检查数据目录权限和磁盘空间。记录保存状态请同时查看“记录状态”。</div>}
       {error && <div role="alert" className="error">{error}<button aria-label="关闭错误" onClick={() => setError('')}>×</button></div>}
-      {state && state.day !== day && ['home', 'review', 'statistics'].includes(page) && <p role="status">正在读取所选日期…</p>}
       {!state && <div className="notice">正在连接本地记录服务。只有连接桌面后台后才会显示真实统计。</div>}
       {page === 'home' && <>{heading('留一盏灯，回看今天。', '那些投入过的时间，都有迹可循。', 'A QUIET RECORD')}
         <section className="state-strip"><div className="state-info"><span className={`dot ${state?.recording ? 'on' : ''}`} /><strong>{state ? modes[state.mode.mode] : '未连接'}</strong><small>{state?.mode.until ? `持续至 ${new Date(state.mode.until).toLocaleTimeString('zh-CN')}` : state?.timingStatus ?? '等待后台状态'}</small></div><div className="mode-quick" role="group" aria-label="记录状态">{(Object.keys(modes) as Mode[]).map(value => <button key={value} disabled={!state || busy} aria-pressed={state?.mode.mode === value} onClick={() => quickMode(value)}>{modes[value]}</button>)}</div><ModeHelp /></section>
         {state && state.day === state.today && <TodayOverview state={state} review={() => setPage('review')} />}
         <section className="health-compact"><button aria-expanded={healthOpen} onClick={() => setHealthOpen(!healthOpen)}>◉　记录状态 · {state?.recognition.busy ? '正在识别' : '运行详情'}　{healthOpen ? '收起' : '查看详情'}</button>{healthOpen && <p>{state?.health ?? '等待连接'}<small>应用计时与截图识别独立。截图开关及失败任务可在设置中管理。</small></p>}</section></>}
-      {page === 'statistics' && <>{heading('时间，在应用之间流动。', '看清应用与常用网站分别用了多久。', 'APPLICATION USAGE')}{/* Keep the connection status beside the date controls. */}<div className="statistics-date">{datePicker}<button onClick={() => { setSettingsTab('browser'); setPage('settings'); }}>{state?.browserConnections ? '浏览器插件已连接' : '浏览器插件未连接'} ↗</button></div>{state && state.day === day && <ApplicationStatistics state={state} />}</>}
-      {page === 'review' && <>{heading('回到这一天。', '按成功记录回顾片段，未记录的时间保持留白。', 'LOOK BACK')}{datePicker}{state?.day === day && <section className="review-summary"><div><small>成功识别累计</small><strong>{formatTime(state?.recognition.records.reduce((n, r) => n + r.seconds, 0) ?? 0)}</strong></div><div><small>成功识别</small><strong>{state?.recognition.records.length ?? 0} 次</strong></div><div><small>待重试任务（所有日期）</small><strong>{state?.recognition.jobs.filter(j => j.status === 'Retry' || j.status === 'Manual').reduce((n, j) => n + j.count, 0) ?? 0} 个</strong></div></section>}</>}
+      {page === 'statistics' && <>{heading('时间，在应用之间流动。', '看清应用与常用网站分别用了多久。', 'APPLICATION USAGE')}{/* Keep the connection status beside the date controls. */}<div className="statistics-date">{datePicker}<button onClick={() => { setSettingsTab('browser'); setPage('settings'); }}>{state?.browserConnections ? '浏览器插件已连接' : '浏览器插件未连接'} ↗</button></div>{dayState && <ApplicationStatistics state={dayState} />}</>}
+      {page === 'review' && <>{heading('回到这一天。', '按成功记录回顾片段，未记录的时间保持留白。', 'LOOK BACK')}{datePicker}{dayState && <section className="review-summary"><div><small>成功识别累计</small><strong>{formatTime(dayState.recognition.records.reduce((n, r) => n + r.seconds, 0))}</strong></div><div><small>成功识别</small><strong>{dayState.recognition.records.length} 次</strong></div><div><small>待重试任务（所有日期）</small><strong>{dayState.recognition.jobs.filter(j => j.status === 'Retry' || j.status === 'Manual').reduce((n, j) => n + j.count, 0)} 个</strong></div></section>}</>}
       {page === 'summaries' && <>{heading('把片段，串成一段回顾。', '选一段时间，理清观察到的事情。', 'AI SUMMARY')}{state && <Summaries state={state} />}</>}
-      {page === 'review' && state && state.day === day && <RecognitionTimeline state={state} />}
+      {page === 'review' && dayState && <RecognitionTimeline state={dayState} />}
       {page === 'settings' && <>{heading('按你的习惯，慢慢调整。', '记录、隐私与数据，都由你决定。', 'PREFERENCES')}{state && <SettingsPanel state={state} tab={settingsTab as 'record' | 'capture' | 'ai' | 'review' | 'browser' | 'data'} busy={busy} configure={async patch => { return await configure(patch); }} run={run} onTabChange={value => setSettingsTab(value)} />}</>}
     </main>
     {dialog && <div className="overlay" onClick={e => { if (e.target === e.currentTarget && !busy) setDialog(false); }}>

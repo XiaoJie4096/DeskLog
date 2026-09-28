@@ -1,4 +1,5 @@
 using System.IO;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -54,11 +55,17 @@ public sealed class MainWindow : Window
     private int ticks;
     private string? storageError;
     private readonly DiagnosticLog diagnosticLog;
+    private readonly long startupStarted;
+    private long startupPrevious;
+    private readonly List<StartupTimingStage> startupStages = [];
+    private bool startupTimingWritten;
     private HwndSource? source;
     private string selectedDay = DateTime.Now.ToString("yyyy-MM-dd");
 
-    public MainWindow(string dataDir, string profile, bool systemTest, bool offlineReview = false)
+    public MainWindow(string dataDir, string profile, bool systemTest, bool offlineReview = false, long startupStarted = 0)
     {
+        this.startupStarted = startupStarted == 0 ? Stopwatch.GetTimestamp() : startupStarted;
+        startupPrevious = this.startupStarted;
         if (offlineReview && profile != "Test") throw new ArgumentException("离线验证仅允许独立测试目录。");
         this.offlineReview = offlineReview;
         aiHttp = offlineReview ? new(offlineHandler) : new(new System.Net.Http.HttpClientHandler { AllowAutoRedirect = false });
@@ -66,18 +73,23 @@ public sealed class MainWindow : Window
         this.dataDir = dataDir; this.profile = profile;
         appVersion = ReadAppVersion();
         diagnosticLog = new(dataDir);
+        MarkStartup("preflight_and_window_allocation");
         this.systemTest = systemTest;
         Title = "日迹" + (profile != "Production" ? " · 开发版" : "");
         Width = 1240; Height = 840; MinWidth = 850; MinHeight = 640;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
         Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(23, 27, 27));
         store = new(Path.Combine(dataDir, "riji.db"));
+        MarkStartup("database_open");
         tracker = new((store.Read<TrackingSettings>("settings") ?? new()) with { WebsiteSnippets = false }, store.Read<ModeState>("mode") ?? new(), TimeZoneInfo.Local);
         selectedDay = DayRange.Today(DateTimeOffset.Now, tracker.Settings, TimeZoneInfo.Local);
         SetStartup(tracker.Settings.StartWithWindows);
+        MarkStartup("tracker_and_startup_registry");
         observer = new();
-        InitializePipelines();
+        MarkStartup("input_hook_install");
+        InitializePipelines(measureStartup: true);
         dataStatus = DataArchive.CleanupRetired(store, dataDir);
+        MarkStartup("retired_screenshot_cleanup");
         if (profile is "Development" or "Production")
         {
             browser = new(profile == "Development" ? 4177 : 4178,
@@ -91,8 +103,10 @@ public sealed class MainWindow : Window
                 }));
             _ = browser.Start();
         }
+        MarkStartup("browser_server_start");
         observer.ForegroundChanged += OnForeground;
         tracker.Observe(Capture());
+        MarkStartup("first_observation");
         timer = new(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(250) };
         timer.Tick += (_, _) => Tick();
         tray = new() { Icon = new System.Drawing.Icon(Path.Combine(AppContext.BaseDirectory, "riji.ico")), Text = "日迹 · 正在记录", Visible = true };
@@ -116,9 +130,10 @@ public sealed class MainWindow : Window
             ApplyTitleBarTheme(tracker.Settings.Theme);
             WTSRegisterSessionNotification(source.Handle, 0);
         };
-        Loaded += async (_, _) => await InitializeWeb();
+        Loaded += async (_, _) => { MarkStartup("wpf_window_loaded"); await InitializeWeb(); };
         Closing += (_, e) => { if (!exiting) { e.Cancel = true; Hide(); } };
         Closed += (_, _) => Cleanup();
+        MarkStartup("window_setup");
     }
 
     private void ShowMainWindow()
@@ -139,7 +154,9 @@ public sealed class MainWindow : Window
             var folder = Path.Combine(AppContext.BaseDirectory, "Web");
             if (!File.Exists(Path.Combine(folder, "index.html"))) throw new InvalidOperationException("缺少正式界面，请先运行前端构建。");
             var environment = await CoreWebView2Environment.CreateAsync(null, Path.Combine(dataDir, "WebView"));
+            MarkStartup("webview_environment_wait", asyncWait: true);
             await web.EnsureCoreWebView2Async(environment);
+            MarkStartup("webview_control_wait", asyncWait: true);
             web.CoreWebView2.SetVirtualHostNameToFolderMapping("riji.local", folder, CoreWebView2HostResourceAccessKind.DenyCors);
             web.CoreWebView2.Settings.AreDevToolsEnabled = profile == "Development";
             web.CoreWebView2.Settings.AreDefaultContextMenusEnabled = false;
@@ -159,15 +176,22 @@ public sealed class MainWindow : Window
             web.CoreWebView2.WebMessageReceived += OnMessage;
             web.CoreWebView2.NavigationCompleted += async (_, e) =>
             {
+                MarkStartup("webview_navigation_wait", asyncWait: true);
                 ready = e.IsSuccess;
-                if (ready) { Push(); if (offlineReview) await OfflineReviewTest(); }
+                if (ready) { Push(); MarkStartup("first_snapshot"); }
+                else MarkStartup("webview_navigation_failed");
+                await CompleteStartupTiming();
+                if (ready && offlineReview) await OfflineReviewTest();
             };
             web.Source = new Uri("https://riji.local/index.html");
             if (systemTest) ChangeMode(RecordingMode.Locked, 120);
             timer.Start();
+            MarkStartup("webview_configuration_and_navigation");
         }
         catch (Exception e)
         {
+            MarkStartup("webview_startup_failed");
+            await CompleteStartupTiming();
             diagnosticLog.Failure(DiagnosticEvent.WebViewStartup, e);
             System.Windows.MessageBox.Show(e.Message, "日迹启动失败");
             Exit();
@@ -181,13 +205,33 @@ public sealed class MainWindow : Window
         return raw with { Website = evidence };
     }
 
-    private void InitializePipelines()
+    private void InitializePipelines(bool measureStartup = false)
     {
         recognition = new(store, new HttpAiClient(aiHttp), dataDir, ScreenCapture.SavePng,
             () => !maintenance && !exiting && tracker.Settings.AutoRecord && tracker.State.Mode is RecordingMode.Default or RecordingMode.Locked && !observer.Capture().SystemBlocked,
             SecretVault.Protect, SecretVault.Unprotect, Capture);
+        if (measureStartup) MarkStartup("recognition_recovery");
         summaries = new(store, new HttpAiClient(aiHttp), () => (recognition.Configuration ?? throw new InvalidOperationException("请先在设置中验证 AI 配置。"), recognition.ActiveKey()));
+        if (measureStartup) MarkStartup("summary_recovery");
         hourlySummaries = new(store, summaries, TimeZoneInfo.Local, DateTimeOffset.UtcNow, () => !maintenance && !exiting && !offlineReview && profile != "Test" && recognition.Configuration is not null);
+        if (measureStartup) MarkStartup("hourly_summary_setup");
+    }
+
+    private void MarkStartup(string name, bool asyncWait = false)
+    {
+        if (startupTimingWritten) return;
+        var now = Stopwatch.GetTimestamp();
+        startupStages.Add(new(name, Math.Round(Stopwatch.GetElapsedTime(startupPrevious, now).TotalMilliseconds, 1),
+            Math.Round(Stopwatch.GetElapsedTime(startupStarted, now).TotalMilliseconds, 1), asyncWait));
+        startupPrevious = now;
+    }
+
+    private Task CompleteStartupTiming()
+    {
+        if (startupTimingWritten) return Task.CompletedTask;
+        startupTimingWritten = true;
+        var stages = startupStages.ToArray();
+        return Task.Run(() => diagnosticLog.StartupTiming(stages));
     }
 
     private void OnForeground() { if (!exiting && !maintenance) Dispatcher.BeginInvoke(() => { if (!exiting && !maintenance) tracker.Observe(Capture()); }); }

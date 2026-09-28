@@ -5,6 +5,7 @@ using Riji.Core;
 namespace Riji.Infrastructure;
 
 public enum DiagnosticEvent { Startup, WebViewStartup, StorageCommit, Command, Snapshot, MaintenanceRecovery }
+public sealed record StartupTimingStage(string Name, double DurationMs, double SinceStartMs, bool AsyncWait = false);
 
 // General diagnostics omit content; recognition failure reports retain the evidence needed for local debugging.
 public sealed class DiagnosticLog(string dataDirectory, int maxBytes = 262144, int retainedFiles = 4)
@@ -60,6 +61,25 @@ public sealed class DiagnosticLog(string dataDirectory, int maxBytes = 262144, i
                 Rotate(path, line);
                 File.AppendAllText(path, line, new UTF8Encoding(false));
                 last[code] = now; WriteFailed = false;
+            }
+            catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
+            { WriteFailed = true; }
+        }
+    }
+
+    public void StartupTiming(IReadOnlyList<StartupTimingStage> stages)
+    {
+        lock (gate)
+        {
+            try
+            {
+                Directory.CreateDirectory(DirectoryPath);
+                var path = Path.Combine(DirectoryPath, "diagnostic.jsonl");
+                var line = JsonSerializer.Serialize(new { utc = DateTimeOffset.UtcNow, code = "StartupTiming",
+                    totalMs = stages.Count == 0 ? 0 : stages[^1].SinceStartMs, stages }, new JsonSerializerOptions(JsonSerializerDefaults.Web)) + "\n";
+                Rotate(path, line);
+                File.AppendAllText(path, line, new UTF8Encoding(false));
+                WriteFailed = false;
             }
             catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
             { WriteFailed = true; }
