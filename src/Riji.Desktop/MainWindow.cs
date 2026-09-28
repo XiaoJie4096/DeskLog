@@ -144,6 +144,7 @@ public sealed class MainWindow : Window
             WTSRegisterSessionNotification(source.Handle, 0);
         };
         Loaded += async (_, _) => { MarkStartup("wpf_window_loaded"); await InitializeWeb(); };
+        StateChanged += (_, _) => { if (ready && WindowState != WindowState.Minimized) Push(); };
         Closing += (_, e) => { if (!exiting) { e.Cancel = true; Hide(); } };
         Closed += (_, _) => Cleanup();
         MarkStartup("window_setup");
@@ -157,6 +158,7 @@ public sealed class MainWindow : Window
         Activate();
         var handle = new WindowInteropHelper(this).Handle;
         if (handle != nint.Zero) SetForegroundWindow(handle);
+        Push();
     }
 
     // Load only bundled content, with a dedicated WebView profile and restricted message origin.
@@ -348,7 +350,9 @@ public sealed class MainWindow : Window
             if (++ticks % 4 == 0)
             {
                 TimeRuntime("commit", () => Commit());
-                TimeRuntime("push", Push);
+                if (ticks % 12 == 0 && IsVisible && WindowState != WindowState.Minimized)
+                    TimeRuntime("push", Push);
+                UpdateTrayStatus();
                 TimeRuntime("recognition_pulse_dispatch", () => { _ = recognition.Pulse(DateTimeOffset.UtcNow); });
                 TimeRuntime("hourly_pulse_dispatch", () => { _ = hourlySummaries.Pulse(DateTimeOffset.UtcNow); });
                 TimeRuntime("summary_pulse_dispatch", () => { _ = summaries.Pulse(DateTimeOffset.UtcNow); });
@@ -507,9 +511,15 @@ public sealed class MainWindow : Window
                 summaries = store.SummaryHeaders(),
                 days = store.Days(tracker.Settings, TimeZoneInfo.Local), profile, dataPath = store.Path, appVersion, savedAt = DateTimeOffset.UtcNow,
                 recording = tracker.IsTimingActive, timingStatus = tracker.TimingStatus });
-            tray.Text = "日迹 · " + (tracker.State.Mode == RecordingMode.Away ? "离开" : "运行中");
+            UpdateTrayStatus();
         }
         catch (Exception error) { diagnosticLog.Failure(DiagnosticEvent.Snapshot, error); Send(new { type = "error", error = "无法读取统计，请检查数据库及磁盘状态。" }); }
+    }
+
+    private void UpdateTrayStatus()
+    {
+        var text = "日迹 · " + (tracker.State.Mode == RecordingMode.Away ? "离开" : "运行中");
+        if (tray.Text != text) tray.Text = text;
     }
 
     private void Send(object message) { if (ready) web.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(message, json)); }

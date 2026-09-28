@@ -14,8 +14,9 @@ public sealed class WindowsObserver : IDisposable
     private readonly Native.HookProc keyboardCallback;
     private readonly Native.HookProc mouseCallback;
     private readonly Native.WinEventProc foregroundCallback;
-    private readonly nint keyboardHook;
-    private readonly nint mouseHook;
+    private readonly Thread inputHookThread;
+    private nint keyboardHook;
+    private nint mouseHook;
     private readonly nint foregroundHook;
     private readonly System.Threading.Timer gamepadTimer;
     private readonly GamepadSample[] gamepads = [new(), new(), new(), new()];
@@ -28,25 +29,41 @@ public sealed class WindowsObserver : IDisposable
     private AppIdentity? lastApp;
     private double lastLookup = -10;
     private readonly List<InputHookDelay> inputDelays = [];
-    private bool inputTiming;
+    private readonly object inputDelayGate = new();
+    private int inputTiming;
+    private int inputHooksAvailable;
+    private int inputHookThreadId;
     private int droppedInputDelays;
     public bool Suspended { get; set; }
     public bool SessionLocked { get; set; }
-    public bool HooksAvailable => keyboardHook != 0 && mouseHook != 0 && foregroundHook != 0;
+    public bool HooksAvailable => Volatile.Read(ref inputHooksAvailable) != 0 && foregroundHook != 0;
     public event Action? ForegroundChanged;
     public static double Monotonic => (double)Stopwatch.GetTimestamp() / Stopwatch.Frequency;
 
-    public void StartInputTiming() => inputTiming = true;
+    private void ObserveInput(double when)
+    {
+        double previous;
+        do
+        {
+            previous = Volatile.Read(ref lastInput);
+            if (when <= previous) return;
+        } while (Interlocked.CompareExchange(ref lastInput, when, previous) != previous);
+    }
+
+    public void StartInputTiming() => Volatile.Write(ref inputTiming, 1);
 
     public (InputHookDelay[] Delays, int Dropped) DrainInputTiming()
     {
-        var result = (inputDelays.ToArray(), droppedInputDelays);
-        inputDelays.Clear();
-        droppedInputDelays = 0;
-        return result;
+        lock (inputDelayGate)
+        {
+            var result = (inputDelays.ToArray(), droppedInputDelays);
+            inputDelays.Clear();
+            droppedInputDelays = 0;
+            return result;
+        }
     }
 
-    public void StopInputTiming() => inputTiming = false;
+    public void StopInputTiming() => Volatile.Write(ref inputTiming, 0);
 
     public WindowsObserver(InputThresholds? thresholds = null)
     {
@@ -58,11 +75,38 @@ public sealed class WindowsObserver : IDisposable
         keyboardCallback = OnKeyboard;
         mouseCallback = OnMouse;
         foregroundCallback = (_, _, _, _, _, _, _) => ForegroundChanged?.Invoke();
-        var module = Native.GetModuleHandle(null);
-        keyboardHook = Native.SetWindowsHookEx(13, keyboardCallback, module, 0);
-        mouseHook = Native.SetWindowsHookEx(14, mouseCallback, module, 0);
         foregroundHook = Native.SetWinEventHook(3, 3, 0, foregroundCallback, 0, 0, 0);
+        using var ready = new ManualResetEventSlim();
+        inputHookThread = new Thread(() => RunInputHooks(ready)) { IsBackground = true, Name = "Riji input hooks" };
+        inputHookThread.Start();
+        ready.Wait();
         gamepadTimer = new(PollGamepads, null, TimeSpan.Zero, TimeSpan.FromSeconds(2));
+    }
+
+    private void RunInputHooks(ManualResetEventSlim ready)
+    {
+        var signaled = false;
+        try
+        {
+            Volatile.Write(ref inputHookThreadId, unchecked((int)Native.GetCurrentThreadId()));
+            Native.PeekMessage(out _, 0, 0, 0, 0);
+            var module = Native.GetModuleHandle(null);
+            keyboardHook = Native.SetWindowsHookEx(13, keyboardCallback, module, 0);
+            mouseHook = Native.SetWindowsHookEx(14, mouseCallback, module, 0);
+            if (keyboardHook == 0 || mouseHook == 0) return;
+            Volatile.Write(ref inputHooksAvailable, 1);
+            ready.Set();
+            signaled = true;
+            while (Native.GetMessage(out _, 0, 0, 0) > 0) { }
+        }
+        catch (Exception) { }
+        finally
+        {
+            Volatile.Write(ref inputHooksAvailable, 0);
+            if (keyboardHook != 0) Native.UnhookWindowsHookEx(keyboardHook);
+            if (mouseHook != 0) Native.UnhookWindowsHookEx(mouseHook);
+            if (!signaled) ready.Set();
+        }
     }
 
     public Observation Capture()
@@ -78,7 +122,7 @@ public sealed class WindowsObserver : IDisposable
         }
         Native.GetWindowThreadProcessId(window, out var pid);
         var desktop = !blocked && window == Native.GetShellWindow();
-        return new(DateTimeOffset.UtcNow, now, lastApp, lastInput, blocked, (int)pid, $"{pid}:{window}", null, desktop);
+        return new(DateTimeOffset.UtcNow, now, lastApp, Volatile.Read(ref lastInput), blocked, (int)pid, $"{pid}:{window}", null, desktop);
     }
 
     // Secure desktops and inaccessible desktop state are conservatively paused.
@@ -116,7 +160,7 @@ public sealed class WindowsObserver : IDisposable
 
     private nint OnKeyboard(int code, nint message, nint data)
     {
-        if (code >= 0 && message is 0x100 or 0x104) lastInput = Monotonic;
+        if (code >= 0 && message is 0x100 or 0x104) ObserveInput(Monotonic);
         return Native.CallNextHookEx(0, code, message, data);
     }
 
@@ -124,14 +168,14 @@ public sealed class WindowsObserver : IDisposable
     {
         if (code >= 0)
         {
-            if (inputTiming) RecordInputDelay(data);
+            if (Volatile.Read(ref inputTiming) != 0) RecordInputDelay(data);
             var now = Monotonic;
-            if (message is 0x201 or 0x204 or 0x207 or 0x20A or 0x20B or 0x20E) lastInput = now;
+            if (message is 0x201 or 0x204 or 0x207 or 0x20A or 0x20B or 0x20E) ObserveInput(now);
             else if (message == 0x200)
             {
                 var x = Marshal.ReadInt32(data);
                 var y = Marshal.ReadInt32(data, 4);
-                if (inputActivity.MouseMoved(x, y, now)) lastInput = now;
+                if (inputActivity.MouseMoved(x, y, now)) ObserveInput(now);
             }
         }
         return Native.CallNextHookEx(0, code, message, data);
@@ -143,15 +187,28 @@ public sealed class WindowsObserver : IDisposable
         var eventTick = unchecked((uint)Marshal.ReadInt32(data, 16));
         var delayMs = unchecked((uint)Environment.TickCount64 - eventTick);
         if (delayMs < 40 || delayMs > 10000) return;
-        if (inputDelays.Count >= 128) { droppedInputDelays++; return; }
-        inputDelays.Add(new(DateTimeOffset.UtcNow.AddMilliseconds(-delayMs), delayMs));
+        lock (inputDelayGate)
+        {
+            if (inputDelays.Count >= 128) { droppedInputDelays++; return; }
+            inputDelays.Add(new(DateTimeOffset.UtcNow.AddMilliseconds(-delayMs), delayMs));
+        }
     }
 
     public void Dispose()
     {
-        if (Interlocked.Exchange(ref disposed, 1) == 0) gamepadTimer.Dispose();
-        if (keyboardHook != 0) Native.UnhookWindowsHookEx(keyboardHook);
-        if (mouseHook != 0) Native.UnhookWindowsHookEx(mouseHook);
+        if (Interlocked.Exchange(ref disposed, 1) != 0) return;
+        gamepadTimer.Dispose();
+        StopInputTiming();
+        if (inputHookThread.IsAlive)
+        {
+            Native.PostThreadMessage(unchecked((uint)Volatile.Read(ref inputHookThreadId)), 0x12, 0, 0);
+            if (!inputHookThread.Join(TimeSpan.FromSeconds(2)))
+            {
+                if (keyboardHook != 0) Native.UnhookWindowsHookEx(keyboardHook);
+                if (mouseHook != 0) Native.UnhookWindowsHookEx(mouseHook);
+                Volatile.Write(ref inputHooksAvailable, 0);
+            }
+        }
         if (foregroundHook != 0) Native.UnhookWinEvent(foregroundHook);
     }
 
@@ -173,7 +230,7 @@ public sealed class WindowsObserver : IDisposable
                      Math.Abs(sample.LeftX - state.Gamepad.LeftThumbX) >= 8000 || Math.Abs(sample.LeftY - state.Gamepad.LeftThumbY) >= 8000 ||
                      Math.Abs(sample.RightX - state.Gamepad.RightThumbX) >= 8000 || Math.Abs(sample.RightY - state.Gamepad.RightThumbY) >= 8000 ||
                      Math.Abs(sample.LeftTrigger - state.Gamepad.LeftTrigger) >= 30 || Math.Abs(sample.RightTrigger - state.Gamepad.RightTrigger) >= 30);
-                if (changed) lastInput = Monotonic;
+                if (changed) ObserveInput(Monotonic);
                 sample.Connected = true; sample.Active = active;
                 sample.Packet = state.PacketNumber;
                 sample.Buttons = state.Gamepad.Buttons;
@@ -195,7 +252,11 @@ public sealed class WindowsObserver : IDisposable
         }
         var desired = connected ? 1 : 0;
         if (Interlocked.Exchange(ref gamepadPollMode, desired) != desired)
-            gamepadTimer.Change(connected ? TimeSpan.FromMilliseconds(50) : TimeSpan.FromSeconds(2), connected ? TimeSpan.FromMilliseconds(50) : TimeSpan.FromSeconds(2));
+        {
+            if (Volatile.Read(ref disposed) != 0) return;
+            try { gamepadTimer.Change(connected ? TimeSpan.FromMilliseconds(50) : TimeSpan.FromSeconds(2), connected ? TimeSpan.FromMilliseconds(50) : TimeSpan.FromSeconds(2)); }
+            catch (ObjectDisposedException) { }
+        }
     }
 
     private static bool IsMeaningful(Native.XInputGamepad gamepad)
@@ -216,6 +277,8 @@ public sealed class WindowsObserver : IDisposable
     private static class Native
     {
         [StructLayout(LayoutKind.Sequential)] internal struct LastInput { public uint Size; public uint Time; }
+        [StructLayout(LayoutKind.Sequential)] internal struct Point { public int X, Y; }
+        [StructLayout(LayoutKind.Sequential)] internal struct Message { public nint Hwnd; public uint Id; public nint WParam, LParam; public uint Time; public Point Position; public uint Private; }
         internal delegate nint HookProc(int code, nint message, nint data);
         internal delegate void WinEventProc(nint hook, uint evt, nint window, int obj, int child, uint thread, uint time);
         [DllImport("user32.dll")] internal static extern nint GetForegroundWindow();
@@ -225,7 +288,11 @@ public sealed class WindowsObserver : IDisposable
         [DllImport("kernel32.dll")] internal static extern bool CloseHandle(nint handle);
         [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] internal static extern bool QueryFullProcessImageName(nint process, uint flags, StringBuilder name, ref int size);
         [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] internal static extern nint GetModuleHandle(string? name);
+        [DllImport("kernel32.dll")] internal static extern uint GetCurrentThreadId();
         [DllImport("user32.dll")] internal static extern bool GetLastInputInfo(ref LastInput input);
+        [DllImport("user32.dll")] internal static extern bool PeekMessage(out Message message, nint window, uint min, uint max, uint remove);
+        [DllImport("user32.dll")] internal static extern int GetMessage(out Message message, nint window, uint min, uint max);
+        [DllImport("user32.dll")] internal static extern bool PostThreadMessage(uint thread, uint message, nint wParam, nint lParam);
         [DllImport("user32.dll", CharSet = CharSet.Unicode)] internal static extern nint SetWindowsHookEx(int type, HookProc callback, nint module, uint thread);
         [DllImport("user32.dll")] internal static extern bool UnhookWindowsHookEx(nint hook);
         [DllImport("user32.dll")] internal static extern nint CallNextHookEx(nint hook, int code, nint message, nint data);
