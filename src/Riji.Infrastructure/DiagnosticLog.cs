@@ -7,6 +7,8 @@ namespace Riji.Infrastructure;
 public enum DiagnosticEvent { Startup, WebViewStartup, StorageCommit, Command, Snapshot, MaintenanceRecovery }
 public sealed record StartupTimingStage(string Name, double DurationMs, double SinceStartMs, bool AsyncWait = false);
 public sealed record StartupUiDelay(DateTimeOffset PostedUtc, double PostedSinceStartMs, double HandledSinceStartMs, double DelayMs);
+public sealed record RuntimeStageTiming(DateTimeOffset Utc, string Stage, double DurationMs);
+public sealed record RuntimeInputTiming(DateTimeOffset EventUtc, double DelayMs);
 
 // General diagnostics omit content; recognition failure reports retain the evidence needed for local debugging.
 public sealed class DiagnosticLog(string dataDirectory, int maxBytes = 262144, int retainedFiles = 4)
@@ -97,6 +99,29 @@ public sealed class DiagnosticLog(string dataDirectory, int maxBytes = 262144, i
                 var path = Path.Combine(DirectoryPath, "diagnostic.jsonl");
                 var line = JsonSerializer.Serialize(new { utc = DateTimeOffset.UtcNow, code = "StartupUiDelay",
                     monitoringStartMs, monitoringEndMs, probeIntervalMs = 50, thresholdMs = 100, delays },
+                    new JsonSerializerOptions(JsonSerializerDefaults.Web)) + "\n";
+                Rotate(path, line);
+                File.AppendAllText(path, line, new UTF8Encoding(false));
+                WriteFailed = false;
+            }
+            catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
+            { WriteFailed = true; }
+        }
+    }
+
+    public void RuntimeTiming(DateTimeOffset startUtc, DateTimeOffset endUtc,
+        IReadOnlyList<RuntimeInputTiming> mouseDelays, int droppedMouseDelays,
+        IReadOnlyList<RuntimeStageTiming> stages, int droppedStages)
+    {
+        lock (gate)
+        {
+            try
+            {
+                Directory.CreateDirectory(DirectoryPath);
+                var path = Path.Combine(DirectoryPath, "diagnostic.jsonl");
+                var line = JsonSerializer.Serialize(new { utc = DateTimeOffset.UtcNow, code = "RuntimeTiming",
+                    startUtc, endUtc, mouseThresholdMs = 40, stageThresholdMs = 20,
+                    mouseDelays, droppedMouseDelays, stages, droppedStages },
                     new JsonSerializerOptions(JsonSerializerDefaults.Web)) + "\n";
                 Rotate(path, line);
                 File.AppendAllText(path, line, new UTF8Encoding(false));

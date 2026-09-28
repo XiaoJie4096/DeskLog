@@ -6,6 +6,8 @@ using Riji.Core;
 
 namespace Riji.Windows;
 
+public sealed record InputHookDelay(DateTimeOffset EventUtc, double DelayMs);
+
 // Keep callbacks alive for the lifetime of the native hooks; never retain typed content.
 public sealed class WindowsObserver : IDisposable
 {
@@ -25,11 +27,26 @@ public sealed class WindowsObserver : IDisposable
     private nint lastWindow;
     private AppIdentity? lastApp;
     private double lastLookup = -10;
+    private readonly List<InputHookDelay> inputDelays = [];
+    private bool inputTiming;
+    private int droppedInputDelays;
     public bool Suspended { get; set; }
     public bool SessionLocked { get; set; }
     public bool HooksAvailable => keyboardHook != 0 && mouseHook != 0 && foregroundHook != 0;
     public event Action? ForegroundChanged;
     public static double Monotonic => (double)Stopwatch.GetTimestamp() / Stopwatch.Frequency;
+
+    public void StartInputTiming() => inputTiming = true;
+
+    public (InputHookDelay[] Delays, int Dropped) DrainInputTiming()
+    {
+        var result = (inputDelays.ToArray(), droppedInputDelays);
+        inputDelays.Clear();
+        droppedInputDelays = 0;
+        return result;
+    }
+
+    public void StopInputTiming() => inputTiming = false;
 
     public WindowsObserver(InputThresholds? thresholds = null)
     {
@@ -107,6 +124,7 @@ public sealed class WindowsObserver : IDisposable
     {
         if (code >= 0)
         {
+            if (inputTiming) RecordInputDelay(data);
             var now = Monotonic;
             if (message is 0x201 or 0x204 or 0x207 or 0x20A or 0x20B or 0x20E) lastInput = now;
             else if (message == 0x200)
@@ -117,6 +135,16 @@ public sealed class WindowsObserver : IDisposable
             }
         }
         return Native.CallNextHookEx(0, code, message, data);
+    }
+
+    private void RecordInputDelay(nint data)
+    {
+        // MSLLHOOKSTRUCT.time is the system tick when Windows generated this event.
+        var eventTick = unchecked((uint)Marshal.ReadInt32(data, 16));
+        var delayMs = unchecked((uint)Environment.TickCount64 - eventTick);
+        if (delayMs < 40 || delayMs > 10000) return;
+        if (inputDelays.Count >= 128) { droppedInputDelays++; return; }
+        inputDelays.Add(new(DateTimeOffset.UtcNow.AddMilliseconds(-delayMs), delayMs));
     }
 
     public void Dispose()

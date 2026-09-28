@@ -77,4 +77,25 @@ public sealed class DiagnosticLogTests
         }
         finally { if (Directory.Exists(folder)) Directory.Delete(folder, true); }
     }
+
+    [Fact] public void RuntimeTimingRecordsMouseDelayAndNamedStages()
+    {
+        var folder = Path.Combine(Path.GetTempPath(), "RijiLogs", Guid.NewGuid().ToString("N"));
+        try
+        {
+            var log = new DiagnosticLog(folder);
+            var start = DateTimeOffset.Parse("2026-09-28T03:00:00Z");
+            log.RuntimeTiming(start, start.AddSeconds(30), [new(start.AddSeconds(3), 85)], 2,
+                [new(start.AddSeconds(4), "push", 92.5)], 1);
+            using var document = JsonDocument.Parse(File.ReadAllText(Path.Combine(log.DirectoryPath, "diagnostic.jsonl")));
+            var entry = document.RootElement;
+            Assert.Equal("RuntimeTiming", entry.GetProperty("code").GetString());
+            Assert.Equal(40, entry.GetProperty("mouseThresholdMs").GetInt32());
+            Assert.Equal(85, entry.GetProperty("mouseDelays")[0].GetProperty("delayMs").GetDouble());
+            Assert.Equal("push", entry.GetProperty("stages")[0].GetProperty("stage").GetString());
+            Assert.Equal(2, entry.GetProperty("droppedMouseDelays").GetInt32());
+            Assert.Equal(1, entry.GetProperty("droppedStages").GetInt32());
+        }
+        finally { if (Directory.Exists(folder)) Directory.Delete(folder, true); }
+    }
 }

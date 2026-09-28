@@ -65,6 +65,12 @@ public sealed class MainWindow : Window
     private int startupUiProbeStopped;
     private double startupUiMonitoringStartMs;
     private bool startupTimingWritten;
+    private readonly List<RuntimeStageTiming> runtimeStages = [];
+    private DateTimeOffset runtimeBatchStartUtc;
+    private long runtimeStarted;
+    private long runtimeLastFlush;
+    private int droppedRuntimeStages;
+    private bool runtimeTiming;
     private HwndSource? source;
     private string selectedDay = DateTime.Now.ToString("yyyy-MM-dd");
 
@@ -280,6 +286,54 @@ public sealed class MainWindow : Window
         lock (startupUiGate) delays = startupUiDelays.ToArray();
         var end = Math.Round(Stopwatch.GetElapsedTime(startupStarted).TotalMilliseconds, 1);
         await Task.Run(() => diagnosticLog.StartupUiDelays(startupUiMonitoringStartMs, end, delays));
+        if (!exiting && !systemTest && !offlineReview) StartRuntimeTiming();
+    }
+
+    private void StartRuntimeTiming()
+    {
+        runtimeStarted = runtimeLastFlush = Stopwatch.GetTimestamp();
+        runtimeBatchStartUtc = DateTimeOffset.UtcNow;
+        runtimeTiming = true;
+        observer.StartInputTiming();
+    }
+
+    private void TimeRuntime(string stage, Action action)
+    {
+        if (!runtimeTiming) { action(); return; }
+        var started = Stopwatch.GetTimestamp();
+        try { action(); }
+        finally { RecordRuntimeStage(stage, started); }
+    }
+
+    private void RecordRuntimeStage(string stage, long started)
+    {
+        if (!runtimeTiming) return;
+        var duration = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+        if (duration < 20) return;
+        if (runtimeStages.Count >= 128) { droppedRuntimeStages++; return; }
+        runtimeStages.Add(new(DateTimeOffset.UtcNow, stage, Math.Round(duration, 1)));
+    }
+
+    private void FlushRuntimeTiming(bool force = false)
+    {
+        if (!runtimeTiming) return;
+        var now = Stopwatch.GetTimestamp();
+        var elapsed = Stopwatch.GetElapsedTime(runtimeLastFlush, now);
+        var complete = Stopwatch.GetElapsedTime(runtimeStarted, now) >= TimeSpan.FromHours(1);
+        if (!force && !complete && elapsed < TimeSpan.FromSeconds(30)) return;
+        if (force || complete) { runtimeTiming = false; observer.StopInputTiming(); }
+        var endUtc = DateTimeOffset.UtcNow;
+        var (inputDelays, droppedInputDelays) = observer.DrainInputTiming();
+        var mouseDelays = inputDelays.Select(delay => new RuntimeInputTiming(delay.EventUtc, delay.DelayMs)).ToArray();
+        var stages = runtimeStages.ToArray();
+        var droppedStages = droppedRuntimeStages;
+        var startUtc = runtimeBatchStartUtc;
+        runtimeStages.Clear();
+        droppedRuntimeStages = 0;
+        runtimeBatchStartUtc = endUtc;
+        runtimeLastFlush = now;
+        if (force) diagnosticLog.RuntimeTiming(startUtc, endUtc, mouseDelays, droppedInputDelays, stages, droppedStages);
+        else _ = Task.Run(() => diagnosticLog.RuntimeTiming(startUtc, endUtc, mouseDelays, droppedInputDelays, stages, droppedStages));
     }
 
     private void OnForeground() { if (!exiting && !maintenance) Dispatcher.BeginInvoke(() => { if (!exiting && !maintenance) tracker.Observe(Capture()); }); }
@@ -287,19 +341,25 @@ public sealed class MainWindow : Window
     private void Tick()
     {
         if (maintenance || exiting) return;
-        tracker.Observe(Capture());
-        if (++ticks % 4 == 0)
+        var started = Stopwatch.GetTimestamp();
+        try
         {
-            Commit(); Push();
-            _ = recognition.Pulse(DateTimeOffset.UtcNow);
-            _ = hourlySummaries.Pulse(DateTimeOffset.UtcNow);
-            _ = summaries.Pulse(DateTimeOffset.UtcNow);
-            if (systemTest)
+            TimeRuntime("observe", () => tracker.Observe(Capture()));
+            if (++ticks % 4 == 0)
             {
-                WriteSystemTrace("tick");
-                if (File.Exists(Path.Combine(dataDir, "stop-validation"))) Exit();
+                TimeRuntime("commit", () => Commit());
+                TimeRuntime("push", Push);
+                TimeRuntime("recognition_pulse_dispatch", () => { _ = recognition.Pulse(DateTimeOffset.UtcNow); });
+                TimeRuntime("hourly_pulse_dispatch", () => { _ = hourlySummaries.Pulse(DateTimeOffset.UtcNow); });
+                TimeRuntime("summary_pulse_dispatch", () => { _ = summaries.Pulse(DateTimeOffset.UtcNow); });
+                if (systemTest)
+                {
+                    WriteSystemTrace("tick");
+                    if (File.Exists(Path.Combine(dataDir, "stop-validation"))) Exit();
+                }
             }
         }
+        finally { RecordRuntimeStage("tick", started); FlushRuntimeTiming(); }
     }
 
     private bool Commit()
@@ -606,6 +666,7 @@ public sealed class MainWindow : Window
     private void Cleanup()
     {
         Volatile.Write(ref startupUiProbeStopped, 1); startupUiProbe?.Dispose();
+        FlushRuntimeTiming(force: true);
         timer.Stop(); recognition.Dispose(); aiHttp.Dispose(); observer.ForegroundChanged -= OnForeground; observer.Dispose();
         if (source is not null) { WTSUnRegisterSessionNotification(source.Handle); source.RemoveHook(WindowMessage); }
         tray.Visible = false; tray.Dispose(); web.Dispose(); store.Dispose();
