@@ -1,20 +1,5 @@
-.ai-form { display: grid; gap: 16px; margin-top: 28px; border-top: 1px solid var(--line); padding-top: 20px; }
-.ai-form > label { display: grid; gap: 8px; }
-.ai-form input:not([type=checkbox]) { width: 100%; }
-.ai-form .consent { display: flex; align-items: flex-start; line-height: 1.6; }
-.ai-form .consent input { flex-shrink: 0; margin-top: 6px; }
-.category-editor { display: grid; gap: 12px; margin: 20px 0; }
-.category-edit { display: grid; grid-template-columns: 20px 40px 110px minmax(120px, 1fr) auto; align-items: center; gap: 10px; }
-.category-edit input { min-width: 0; width: 100%; }
-.category-edit input[type=color] { padding: 2px; height: 36px; }
-.category-actions { display: flex; justify-content: space-between; }
 @media (max-width: 900px) {
-  .settings fieldset { min-width: 0; }
   .settings .summary-actions { flex-wrap: wrap; }
-  .settings .summary-actions input { min-width: 0; max-width: 100%; flex: 1 1 150px; }
-  .category-edit { grid-template-columns: 20px 40px minmax(70px, 1fr) auto; }
-  .category-edit input:nth-child(4) { grid-column: 1 / -1; grid-row: 2; }
-  .category-edit button { grid-column: 4; grid-row: 1; }
 }
 .recognition-timeline { list-style: none; padding: 0; }
 .recognition-timeline li { display: grid; grid-template-columns: 90px 1fr; gap: 16px; padding: 20px 0; border-top: 1px solid var(--line); }

@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Riji.Infrastructure;
 using Xunit;
 
@@ -35,67 +34,4 @@ public sealed class DiagnosticLogTests
         finally { Directory.Delete(folder, true); }
     }
 
-    [Fact] public void StartupTimingRecordsStagesWithoutUserContent()
-    {
-        var folder = Path.Combine(Path.GetTempPath(), "RijiLogs", Guid.NewGuid().ToString("N"));
-        try
-        {
-            var log = new DiagnosticLog(folder);
-            log.StartupTiming([new("database_open", 12.5, 20.5), new("webview_environment_wait", 30, 50.5, true)]);
-            using var document = JsonDocument.Parse(File.ReadAllText(Path.Combine(log.DirectoryPath, "diagnostic.jsonl")));
-            var entry = document.RootElement;
-            Assert.Equal("StartupTiming", entry.GetProperty("code").GetString());
-            Assert.Equal(50.5, entry.GetProperty("totalMs").GetDouble());
-            var stages = entry.GetProperty("stages");
-            Assert.Equal("database_open", stages[0].GetProperty("name").GetString());
-            Assert.Equal(12.5, stages[0].GetProperty("durationMs").GetDouble());
-            Assert.True(stages[1].GetProperty("asyncWait").GetBoolean());
-            Assert.False(log.WriteFailed);
-        }
-        finally { if (Directory.Exists(folder)) Directory.Delete(folder, true); }
-    }
-
-    [Fact] public void StartupUiDelayRecordsProbeWindowAndLongDispatches()
-    {
-        var folder = Path.Combine(Path.GetTempPath(), "RijiLogs", Guid.NewGuid().ToString("N"));
-        try
-        {
-            var log = new DiagnosticLog(folder);
-            var posted = DateTimeOffset.Parse("2026-09-28T02:55:00Z");
-            log.StartupUiDelays(190, 3200, [new(posted, 420, 790, 370)]);
-            using var document = JsonDocument.Parse(File.ReadAllText(Path.Combine(log.DirectoryPath, "diagnostic.jsonl")));
-            var entry = document.RootElement;
-            Assert.Equal("StartupUiDelay", entry.GetProperty("code").GetString());
-            Assert.Equal(190, entry.GetProperty("monitoringStartMs").GetDouble());
-            Assert.Equal(3200, entry.GetProperty("monitoringEndMs").GetDouble());
-            Assert.Equal(50, entry.GetProperty("probeIntervalMs").GetInt32());
-            Assert.Equal(100, entry.GetProperty("thresholdMs").GetInt32());
-            var delay = entry.GetProperty("delays")[0];
-            Assert.Equal(420, delay.GetProperty("postedSinceStartMs").GetDouble());
-            Assert.Equal(370, delay.GetProperty("delayMs").GetDouble());
-            Assert.False(log.WriteFailed);
-        }
-        finally { if (Directory.Exists(folder)) Directory.Delete(folder, true); }
-    }
-
-    [Fact] public void RuntimeTimingRecordsMouseDelayAndNamedStages()
-    {
-        var folder = Path.Combine(Path.GetTempPath(), "RijiLogs", Guid.NewGuid().ToString("N"));
-        try
-        {
-            var log = new DiagnosticLog(folder);
-            var start = DateTimeOffset.Parse("2026-09-28T03:00:00Z");
-            log.RuntimeTiming(start, start.AddSeconds(30), [new(start.AddSeconds(3), 85)], 2,
-                [new(start.AddSeconds(4), "push", 92.5)], 1);
-            using var document = JsonDocument.Parse(File.ReadAllText(Path.Combine(log.DirectoryPath, "diagnostic.jsonl")));
-            var entry = document.RootElement;
-            Assert.Equal("RuntimeTiming", entry.GetProperty("code").GetString());
-            Assert.Equal(40, entry.GetProperty("mouseThresholdMs").GetInt32());
-            Assert.Equal(85, entry.GetProperty("mouseDelays")[0].GetProperty("delayMs").GetDouble());
-            Assert.Equal("push", entry.GetProperty("stages")[0].GetProperty("stage").GetString());
-            Assert.Equal(2, entry.GetProperty("droppedMouseDelays").GetInt32());
-            Assert.Equal(1, entry.GetProperty("droppedStages").GetInt32());
-        }
-        finally { if (Directory.Exists(folder)) Directory.Delete(folder, true); }
-    }
 }

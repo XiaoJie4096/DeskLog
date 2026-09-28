@@ -27,7 +27,7 @@ export function SettingsPanel({ state, tab, busy, configure, run, onTabChange }:
       {tabs.map(([id, name]) => <button key={id} className={tab === id ? 'active' : ''} aria-current={tab === id ? 'page' : undefined} onClick={() => onTabChange(id)}>{name}</button>)}
     </nav>
     <div className="settings">
-      {tab === 'record' && <RecordSettings state={state} busy={busy} configure={configure} run={run} />}
+      {tab === 'record' && <RecordSettings state={state} busy={busy} configure={configure} />}
       {tab === 'capture' && <CaptureSettingsPanel state={state} busy={busy} run={run} />}
       {tab === 'ai' && <AiProviderSettings state={state} busy={busy} run={run} />}
       {tab === 'review' && <ReviewSettings state={state} busy={busy} run={run} />}
@@ -72,7 +72,7 @@ function PromptModal({ open, title, description, value, defaultValue, busy, onCl
   </div>;
 }
 
-function RecordSettings({ state, busy, configure, run }: Pick<Props, 'state' | 'busy' | 'configure' | 'run'>) {
+function RecordSettings({ state, busy, configure }: Pick<Props, 'state' | 'busy' | 'configure'>) {
   const [idle, setIdle] = useState(String(state.settings.idleSeconds));
   useEffect(() => setIdle(String(state.settings.idleSeconds)), [state.settings.idleSeconds]);
   return <>
@@ -169,7 +169,7 @@ function ReviewSettings({ state, busy, run }: { state: Snapshot; busy: boolean; 
 
 function BrowserSettings({ state, busy, configure }: { state: Snapshot; busy: boolean; configure: Props['configure'] }) {
   return <>
-    <Section title="网站归属" meta={<span className="settings-count">{(state.settings.websiteProjects ?? []).length} / 20</span>}><WebsiteRules state={state} embedded /></Section>
+    <Section title="网站归属" meta={<span className="settings-count">{(state.settings.websiteProjects ?? []).length} / 20</span>}><WebsiteRules state={state} /></Section>
     <Section title="网页信息"><SettingRow label="记录网页标题" help="后续标题保存在本地；启用截图识别时可作为 AI 辅助信息。"><Switch label="记录网页标题" checked={state.settings.websiteTitles} disabled={busy} onChange={value => void configure({ websiteTitles: value })} /></SettingRow><p>已连接 {state.browserConnections} 个浏览器会话。安装日迹扩展后自动连接，无需配对码。</p>{state.browserError && <p role="alert" className="settings-error">{state.browserError}</p>}</Section>
   </>;
 }

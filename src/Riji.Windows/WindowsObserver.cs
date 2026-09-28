@@ -6,8 +6,6 @@ using Riji.Core;
 
 namespace Riji.Windows;
 
-public sealed record InputHookDelay(DateTimeOffset EventUtc, double DelayMs);
-
 // Keep callbacks alive for the lifetime of the native hooks; never retain typed content.
 public sealed class WindowsObserver : IDisposable
 {
@@ -28,12 +26,8 @@ public sealed class WindowsObserver : IDisposable
     private nint lastWindow;
     private AppIdentity? lastApp;
     private double lastLookup = -10;
-    private readonly List<InputHookDelay> inputDelays = [];
-    private readonly object inputDelayGate = new();
-    private int inputTiming;
     private int inputHooksAvailable;
     private int inputHookThreadId;
-    private int droppedInputDelays;
     public bool Suspended { get; set; }
     public bool SessionLocked { get; set; }
     public bool HooksAvailable => Volatile.Read(ref inputHooksAvailable) != 0 && foregroundHook != 0;
@@ -49,21 +43,6 @@ public sealed class WindowsObserver : IDisposable
             if (when <= previous) return;
         } while (Interlocked.CompareExchange(ref lastInput, when, previous) != previous);
     }
-
-    public void StartInputTiming() => Volatile.Write(ref inputTiming, 1);
-
-    public (InputHookDelay[] Delays, int Dropped) DrainInputTiming()
-    {
-        lock (inputDelayGate)
-        {
-            var result = (inputDelays.ToArray(), droppedInputDelays);
-            inputDelays.Clear();
-            droppedInputDelays = 0;
-            return result;
-        }
-    }
-
-    public void StopInputTiming() => Volatile.Write(ref inputTiming, 0);
 
     public WindowsObserver(InputThresholds? thresholds = null)
     {
@@ -168,7 +147,6 @@ public sealed class WindowsObserver : IDisposable
     {
         if (code >= 0)
         {
-            if (Volatile.Read(ref inputTiming) != 0) RecordInputDelay(data);
             var now = Monotonic;
             if (message is 0x201 or 0x204 or 0x207 or 0x20A or 0x20B or 0x20E) ObserveInput(now);
             else if (message == 0x200)
@@ -181,24 +159,10 @@ public sealed class WindowsObserver : IDisposable
         return Native.CallNextHookEx(0, code, message, data);
     }
 
-    private void RecordInputDelay(nint data)
-    {
-        // MSLLHOOKSTRUCT.time is the system tick when Windows generated this event.
-        var eventTick = unchecked((uint)Marshal.ReadInt32(data, 16));
-        var delayMs = unchecked((uint)Environment.TickCount64 - eventTick);
-        if (delayMs < 40 || delayMs > 10000) return;
-        lock (inputDelayGate)
-        {
-            if (inputDelays.Count >= 128) { droppedInputDelays++; return; }
-            inputDelays.Add(new(DateTimeOffset.UtcNow.AddMilliseconds(-delayMs), delayMs));
-        }
-    }
-
     public void Dispose()
     {
         if (Interlocked.Exchange(ref disposed, 1) != 0) return;
         gamepadTimer.Dispose();
-        StopInputTiming();
         if (inputHookThread.IsAlive)
         {
             Native.PostThreadMessage(unchecked((uint)Volatile.Read(ref inputHookThreadId)), 0x12, 0, 0);

@@ -1,5 +1,4 @@
 using System.IO;
-using System.Diagnostics;
 using System.Windows;
 
 namespace Riji.Desktop;
@@ -9,7 +8,6 @@ internal static class Program
     [STAThread]
     public static void Main(string[] args)
     {
-        var startupStarted = Stopwatch.GetTimestamp();
         var production = args.Contains("--production") || (!args.Contains("--data-dir") && File.Exists(Path.Combine(AppContext.BaseDirectory, "production-default")));
         var profile = production ? "Production" : "Development";
         var dataDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Riji", profile);
@@ -48,7 +46,7 @@ internal static class Program
             var app = new System.Windows.Application { ShutdownMode = ShutdownMode.OnMainWindowClose };
             if (args.Any(arg => arg is "--system-test" or "--offline-review-test") && (production || dataIndex < 0))
                 throw new ArgumentException("自动验证必须指定独立测试数据目录。");
-            var window = new MainWindow(dataDir, profile, args.Contains("--system-test"), args.Contains("--offline-review-test"), startupStarted);
+            var window = new MainWindow(dataDir, profile, args.Contains("--system-test"), args.Contains("--offline-review-test"));
             using var quitEvent = new EventWaitHandle(false, EventResetMode.AutoReset, quitEventName);
             var quitRegistration = ThreadPool.RegisterWaitForSingleObject(quitEvent, (_, _) => app.Dispatcher.BeginInvoke(window.RequestExit), null, Timeout.Infinite, false);
             try { app.Run(window); }

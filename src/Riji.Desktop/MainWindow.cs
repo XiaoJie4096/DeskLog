@@ -1,5 +1,4 @@
 using System.IO;
-using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -55,29 +54,11 @@ public sealed class MainWindow : Window
     private int ticks;
     private string? storageError;
     private readonly DiagnosticLog diagnosticLog;
-    private readonly long startupStarted;
-    private long startupPrevious;
-    private readonly List<StartupTimingStage> startupStages = [];
-    private readonly List<StartupUiDelay> startupUiDelays = [];
-    private readonly object startupUiGate = new();
-    private System.Threading.Timer? startupUiProbe;
-    private int startupUiProbePending;
-    private int startupUiProbeStopped;
-    private double startupUiMonitoringStartMs;
-    private bool startupTimingWritten;
-    private readonly List<RuntimeStageTiming> runtimeStages = [];
-    private DateTimeOffset runtimeBatchStartUtc;
-    private long runtimeStarted;
-    private long runtimeLastFlush;
-    private int droppedRuntimeStages;
-    private bool runtimeTiming;
     private HwndSource? source;
     private string selectedDay = DateTime.Now.ToString("yyyy-MM-dd");
 
-    public MainWindow(string dataDir, string profile, bool systemTest, bool offlineReview = false, long startupStarted = 0)
+    public MainWindow(string dataDir, string profile, bool systemTest, bool offlineReview = false)
     {
-        this.startupStarted = startupStarted == 0 ? Stopwatch.GetTimestamp() : startupStarted;
-        startupPrevious = this.startupStarted;
         if (offlineReview && profile != "Test") throw new ArgumentException("离线验证仅允许独立测试目录。");
         this.offlineReview = offlineReview;
         aiHttp = offlineReview ? new(offlineHandler) : new(new System.Net.Http.HttpClientHandler { AllowAutoRedirect = false });
@@ -85,24 +66,18 @@ public sealed class MainWindow : Window
         this.dataDir = dataDir; this.profile = profile;
         appVersion = ReadAppVersion();
         diagnosticLog = new(dataDir);
-        MarkStartup("preflight_and_window_allocation");
         this.systemTest = systemTest;
         Title = "日迹" + (profile != "Production" ? " · 开发版" : "");
         Width = 1240; Height = 840; MinWidth = 850; MinHeight = 640;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
         Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(23, 27, 27));
         store = new(Path.Combine(dataDir, "riji.db"));
-        MarkStartup("database_open");
         tracker = new((store.Read<TrackingSettings>("settings") ?? new()) with { WebsiteSnippets = false }, store.Read<ModeState>("mode") ?? new(), TimeZoneInfo.Local);
         selectedDay = DayRange.Today(DateTimeOffset.Now, tracker.Settings, TimeZoneInfo.Local);
         SetStartup(tracker.Settings.StartWithWindows);
-        MarkStartup("tracker_and_startup_registry");
         observer = new();
-        MarkStartup("input_hook_install");
-        StartStartupUiProbe();
-        InitializePipelines(measureStartup: true);
+        InitializePipelines();
         dataStatus = DataArchive.CleanupRetired(store, dataDir);
-        MarkStartup("retired_screenshot_cleanup");
         if (profile is "Development" or "Production")
         {
             browser = new(profile == "Development" ? 4177 : 4178,
@@ -116,10 +91,8 @@ public sealed class MainWindow : Window
                 }));
             _ = browser.Start();
         }
-        MarkStartup("browser_server_start");
         observer.ForegroundChanged += OnForeground;
         tracker.Observe(Capture());
-        MarkStartup("first_observation");
         timer = new(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(250) };
         timer.Tick += (_, _) => Tick();
         tray = new() { Icon = new System.Drawing.Icon(Path.Combine(AppContext.BaseDirectory, "riji.ico")), Text = "日迹 · 正在记录", Visible = true };
@@ -143,11 +116,10 @@ public sealed class MainWindow : Window
             ApplyTitleBarTheme(tracker.Settings.Theme);
             WTSRegisterSessionNotification(source.Handle, 0);
         };
-        Loaded += async (_, _) => { MarkStartup("wpf_window_loaded"); await InitializeWeb(); };
+        Loaded += async (_, _) => await InitializeWeb();
         StateChanged += (_, _) => { if (ready && WindowState != WindowState.Minimized) Push(); };
         Closing += (_, e) => { if (!exiting) { e.Cancel = true; Hide(); } };
         Closed += (_, _) => Cleanup();
-        MarkStartup("window_setup");
     }
 
     private void ShowMainWindow()
@@ -169,9 +141,7 @@ public sealed class MainWindow : Window
             var folder = Path.Combine(AppContext.BaseDirectory, "Web");
             if (!File.Exists(Path.Combine(folder, "index.html"))) throw new InvalidOperationException("缺少正式界面，请先运行前端构建。");
             var environment = await CoreWebView2Environment.CreateAsync(null, Path.Combine(dataDir, "WebView"));
-            MarkStartup("webview_environment_wait", asyncWait: true);
             await web.EnsureCoreWebView2Async(environment);
-            MarkStartup("webview_control_wait", asyncWait: true);
             web.CoreWebView2.SetVirtualHostNameToFolderMapping("riji.local", folder, CoreWebView2HostResourceAccessKind.DenyCors);
             web.CoreWebView2.Settings.AreDevToolsEnabled = profile == "Development";
             web.CoreWebView2.Settings.AreDefaultContextMenusEnabled = false;
@@ -191,22 +161,16 @@ public sealed class MainWindow : Window
             web.CoreWebView2.WebMessageReceived += OnMessage;
             web.CoreWebView2.NavigationCompleted += async (_, e) =>
             {
-                MarkStartup("webview_navigation_wait", asyncWait: true);
                 ready = e.IsSuccess;
-                if (ready) { Push(); MarkStartup("first_snapshot"); }
-                else MarkStartup("webview_navigation_failed");
-                await CompleteStartupTiming();
+                if (ready) Push();
                 if (ready && offlineReview) await OfflineReviewTest();
             };
             web.Source = new Uri("https://riji.local/index.html");
             if (systemTest) ChangeMode(RecordingMode.Locked, 120);
             timer.Start();
-            MarkStartup("webview_configuration_and_navigation");
         }
         catch (Exception e)
         {
-            MarkStartup("webview_startup_failed");
-            await CompleteStartupTiming(observeAfterSnapshot: false);
             diagnosticLog.Failure(DiagnosticEvent.WebViewStartup, e);
             System.Windows.MessageBox.Show(e.Message, "日迹启动失败");
             Exit();
@@ -220,122 +184,13 @@ public sealed class MainWindow : Window
         return raw with { Website = evidence };
     }
 
-    private void InitializePipelines(bool measureStartup = false)
+    private void InitializePipelines()
     {
         recognition = new(store, new HttpAiClient(aiHttp), dataDir, ScreenCapture.SavePng,
             () => !maintenance && !exiting && tracker.Settings.AutoRecord && tracker.State.Mode is RecordingMode.Default or RecordingMode.Locked && !observer.Capture().SystemBlocked,
             SecretVault.Protect, SecretVault.Unprotect, Capture);
-        if (measureStartup) MarkStartup("recognition_recovery");
         summaries = new(store, new HttpAiClient(aiHttp), () => (recognition.Configuration ?? throw new InvalidOperationException("请先在设置中验证 AI 配置。"), recognition.ActiveKey()));
-        if (measureStartup) MarkStartup("summary_recovery");
         hourlySummaries = new(store, summaries, TimeZoneInfo.Local, DateTimeOffset.UtcNow, () => !maintenance && !exiting && !offlineReview && profile != "Test" && recognition.Configuration is not null);
-        if (measureStartup) MarkStartup("hourly_summary_setup");
-    }
-
-    private void MarkStartup(string name, bool asyncWait = false)
-    {
-        if (startupTimingWritten) return;
-        var now = Stopwatch.GetTimestamp();
-        startupStages.Add(new(name, Math.Round(Stopwatch.GetElapsedTime(startupPrevious, now).TotalMilliseconds, 1),
-            Math.Round(Stopwatch.GetElapsedTime(startupStarted, now).TotalMilliseconds, 1), asyncWait));
-        startupPrevious = now;
-    }
-
-    private void StartStartupUiProbe()
-    {
-        startupUiMonitoringStartMs = Stopwatch.GetElapsedTime(startupStarted).TotalMilliseconds;
-        startupUiProbe = new System.Threading.Timer(_ => ProbeStartupUi(), null, TimeSpan.Zero, TimeSpan.FromMilliseconds(50));
-    }
-
-    private void ProbeStartupUi()
-    {
-        if (Volatile.Read(ref startupUiProbeStopped) != 0 || Interlocked.CompareExchange(ref startupUiProbePending, 1, 0) != 0) return;
-        var posted = Stopwatch.GetTimestamp();
-        var postedUtc = DateTimeOffset.UtcNow;
-        try
-        {
-            Dispatcher.BeginInvoke(DispatcherPriority.Input, (Action)(() =>
-            {
-                var handled = Stopwatch.GetTimestamp();
-                var delay = Stopwatch.GetElapsedTime(posted, handled).TotalMilliseconds;
-                if (delay >= 100 && Volatile.Read(ref startupUiProbeStopped) == 0)
-                {
-                    lock (startupUiGate)
-                        startupUiDelays.Add(new(postedUtc, Math.Round(Stopwatch.GetElapsedTime(startupStarted, posted).TotalMilliseconds, 1),
-                            Math.Round(Stopwatch.GetElapsedTime(startupStarted, handled).TotalMilliseconds, 1), Math.Round(delay, 1)));
-                }
-                Volatile.Write(ref startupUiProbePending, 0);
-            }));
-        }
-        catch (InvalidOperationException) { Volatile.Write(ref startupUiProbePending, 0); }
-    }
-
-    private async Task CompleteStartupTiming(bool observeAfterSnapshot = true)
-    {
-        if (startupTimingWritten) return;
-        startupTimingWritten = true;
-        var stages = startupStages.ToArray();
-        await Task.Run(() => diagnosticLog.StartupTiming(stages));
-        if (observeAfterSnapshot)
-        {
-            await Task.Delay(1000);
-            if (!Dispatcher.HasShutdownStarted)
-                await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.Background);
-        }
-        Volatile.Write(ref startupUiProbeStopped, 1);
-        startupUiProbe?.Dispose();
-        StartupUiDelay[] delays;
-        lock (startupUiGate) delays = startupUiDelays.ToArray();
-        var end = Math.Round(Stopwatch.GetElapsedTime(startupStarted).TotalMilliseconds, 1);
-        await Task.Run(() => diagnosticLog.StartupUiDelays(startupUiMonitoringStartMs, end, delays));
-        if (!exiting && !systemTest && !offlineReview) StartRuntimeTiming();
-    }
-
-    private void StartRuntimeTiming()
-    {
-        runtimeStarted = runtimeLastFlush = Stopwatch.GetTimestamp();
-        runtimeBatchStartUtc = DateTimeOffset.UtcNow;
-        runtimeTiming = true;
-        observer.StartInputTiming();
-    }
-
-    private void TimeRuntime(string stage, Action action)
-    {
-        if (!runtimeTiming) { action(); return; }
-        var started = Stopwatch.GetTimestamp();
-        try { action(); }
-        finally { RecordRuntimeStage(stage, started); }
-    }
-
-    private void RecordRuntimeStage(string stage, long started)
-    {
-        if (!runtimeTiming) return;
-        var duration = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
-        if (duration < 20) return;
-        if (runtimeStages.Count >= 128) { droppedRuntimeStages++; return; }
-        runtimeStages.Add(new(DateTimeOffset.UtcNow, stage, Math.Round(duration, 1)));
-    }
-
-    private void FlushRuntimeTiming(bool force = false)
-    {
-        if (!runtimeTiming) return;
-        var now = Stopwatch.GetTimestamp();
-        var elapsed = Stopwatch.GetElapsedTime(runtimeLastFlush, now);
-        var complete = Stopwatch.GetElapsedTime(runtimeStarted, now) >= TimeSpan.FromHours(1);
-        if (!force && !complete && elapsed < TimeSpan.FromSeconds(30)) return;
-        if (force || complete) { runtimeTiming = false; observer.StopInputTiming(); }
-        var endUtc = DateTimeOffset.UtcNow;
-        var (inputDelays, droppedInputDelays) = observer.DrainInputTiming();
-        var mouseDelays = inputDelays.Select(delay => new RuntimeInputTiming(delay.EventUtc, delay.DelayMs)).ToArray();
-        var stages = runtimeStages.ToArray();
-        var droppedStages = droppedRuntimeStages;
-        var startUtc = runtimeBatchStartUtc;
-        runtimeStages.Clear();
-        droppedRuntimeStages = 0;
-        runtimeBatchStartUtc = endUtc;
-        runtimeLastFlush = now;
-        if (force) diagnosticLog.RuntimeTiming(startUtc, endUtc, mouseDelays, droppedInputDelays, stages, droppedStages);
-        else _ = Task.Run(() => diagnosticLog.RuntimeTiming(startUtc, endUtc, mouseDelays, droppedInputDelays, stages, droppedStages));
     }
 
     private void OnForeground() { if (!exiting && !maintenance) Dispatcher.BeginInvoke(() => { if (!exiting && !maintenance) tracker.Observe(Capture()); }); }
@@ -343,27 +198,22 @@ public sealed class MainWindow : Window
     private void Tick()
     {
         if (maintenance || exiting) return;
-        var started = Stopwatch.GetTimestamp();
-        try
+        tracker.Observe(Capture());
+        if (++ticks % 4 == 0)
         {
-            TimeRuntime("observe", () => tracker.Observe(Capture()));
-            if (++ticks % 4 == 0)
+            Commit();
+            if (ticks % 12 == 0 && IsVisible && WindowState != WindowState.Minimized)
+                Push();
+            UpdateTrayStatus();
+            _ = recognition.Pulse(DateTimeOffset.UtcNow);
+            _ = hourlySummaries.Pulse(DateTimeOffset.UtcNow);
+            _ = summaries.Pulse(DateTimeOffset.UtcNow);
+            if (systemTest)
             {
-                TimeRuntime("commit", () => Commit());
-                if (ticks % 12 == 0 && IsVisible && WindowState != WindowState.Minimized)
-                    TimeRuntime("push", Push);
-                UpdateTrayStatus();
-                TimeRuntime("recognition_pulse_dispatch", () => { _ = recognition.Pulse(DateTimeOffset.UtcNow); });
-                TimeRuntime("hourly_pulse_dispatch", () => { _ = hourlySummaries.Pulse(DateTimeOffset.UtcNow); });
-                TimeRuntime("summary_pulse_dispatch", () => { _ = summaries.Pulse(DateTimeOffset.UtcNow); });
-                if (systemTest)
-                {
-                    WriteSystemTrace("tick");
-                    if (File.Exists(Path.Combine(dataDir, "stop-validation"))) Exit();
-                }
+                WriteSystemTrace("tick");
+                if (File.Exists(Path.Combine(dataDir, "stop-validation"))) Exit();
             }
         }
-        finally { RecordRuntimeStage("tick", started); FlushRuntimeTiming(); }
     }
 
     private bool Commit()
@@ -675,8 +525,6 @@ public sealed class MainWindow : Window
 
     private void Cleanup()
     {
-        Volatile.Write(ref startupUiProbeStopped, 1); startupUiProbe?.Dispose();
-        FlushRuntimeTiming(force: true);
         timer.Stop(); recognition.Dispose(); aiHttp.Dispose(); observer.ForegroundChanged -= OnForeground; observer.Dispose();
         if (source is not null) { WTSUnRegisterSessionNotification(source.Handle); source.RemoveHook(WindowMessage); }
         tray.Visible = false; tray.Dispose(); web.Dispose(); store.Dispose();
