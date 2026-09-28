@@ -58,6 +58,12 @@ public sealed class MainWindow : Window
     private readonly long startupStarted;
     private long startupPrevious;
     private readonly List<StartupTimingStage> startupStages = [];
+    private readonly List<StartupUiDelay> startupUiDelays = [];
+    private readonly object startupUiGate = new();
+    private System.Threading.Timer? startupUiProbe;
+    private int startupUiProbePending;
+    private int startupUiProbeStopped;
+    private double startupUiMonitoringStartMs;
     private bool startupTimingWritten;
     private HwndSource? source;
     private string selectedDay = DateTime.Now.ToString("yyyy-MM-dd");
@@ -87,6 +93,7 @@ public sealed class MainWindow : Window
         MarkStartup("tracker_and_startup_registry");
         observer = new();
         MarkStartup("input_hook_install");
+        StartStartupUiProbe();
         InitializePipelines(measureStartup: true);
         dataStatus = DataArchive.CleanupRetired(store, dataDir);
         MarkStartup("retired_screenshot_cleanup");
@@ -191,7 +198,7 @@ public sealed class MainWindow : Window
         catch (Exception e)
         {
             MarkStartup("webview_startup_failed");
-            await CompleteStartupTiming();
+            await CompleteStartupTiming(observeAfterSnapshot: false);
             diagnosticLog.Failure(DiagnosticEvent.WebViewStartup, e);
             System.Windows.MessageBox.Show(e.Message, "日迹启动失败");
             Exit();
@@ -226,12 +233,53 @@ public sealed class MainWindow : Window
         startupPrevious = now;
     }
 
-    private Task CompleteStartupTiming()
+    private void StartStartupUiProbe()
     {
-        if (startupTimingWritten) return Task.CompletedTask;
+        startupUiMonitoringStartMs = Stopwatch.GetElapsedTime(startupStarted).TotalMilliseconds;
+        startupUiProbe = new System.Threading.Timer(_ => ProbeStartupUi(), null, TimeSpan.Zero, TimeSpan.FromMilliseconds(50));
+    }
+
+    private void ProbeStartupUi()
+    {
+        if (Volatile.Read(ref startupUiProbeStopped) != 0 || Interlocked.CompareExchange(ref startupUiProbePending, 1, 0) != 0) return;
+        var posted = Stopwatch.GetTimestamp();
+        var postedUtc = DateTimeOffset.UtcNow;
+        try
+        {
+            Dispatcher.BeginInvoke(DispatcherPriority.Input, (Action)(() =>
+            {
+                var handled = Stopwatch.GetTimestamp();
+                var delay = Stopwatch.GetElapsedTime(posted, handled).TotalMilliseconds;
+                if (delay >= 100 && Volatile.Read(ref startupUiProbeStopped) == 0)
+                {
+                    lock (startupUiGate)
+                        startupUiDelays.Add(new(postedUtc, Math.Round(Stopwatch.GetElapsedTime(startupStarted, posted).TotalMilliseconds, 1),
+                            Math.Round(Stopwatch.GetElapsedTime(startupStarted, handled).TotalMilliseconds, 1), Math.Round(delay, 1)));
+                }
+                Volatile.Write(ref startupUiProbePending, 0);
+            }));
+        }
+        catch (InvalidOperationException) { Volatile.Write(ref startupUiProbePending, 0); }
+    }
+
+    private async Task CompleteStartupTiming(bool observeAfterSnapshot = true)
+    {
+        if (startupTimingWritten) return;
         startupTimingWritten = true;
         var stages = startupStages.ToArray();
-        return Task.Run(() => diagnosticLog.StartupTiming(stages));
+        await Task.Run(() => diagnosticLog.StartupTiming(stages));
+        if (observeAfterSnapshot)
+        {
+            await Task.Delay(1000);
+            if (!Dispatcher.HasShutdownStarted)
+                await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.Background);
+        }
+        Volatile.Write(ref startupUiProbeStopped, 1);
+        startupUiProbe?.Dispose();
+        StartupUiDelay[] delays;
+        lock (startupUiGate) delays = startupUiDelays.ToArray();
+        var end = Math.Round(Stopwatch.GetElapsedTime(startupStarted).TotalMilliseconds, 1);
+        await Task.Run(() => diagnosticLog.StartupUiDelays(startupUiMonitoringStartMs, end, delays));
     }
 
     private void OnForeground() { if (!exiting && !maintenance) Dispatcher.BeginInvoke(() => { if (!exiting && !maintenance) tracker.Observe(Capture()); }); }
@@ -557,6 +605,7 @@ public sealed class MainWindow : Window
 
     private void Cleanup()
     {
+        Volatile.Write(ref startupUiProbeStopped, 1); startupUiProbe?.Dispose();
         timer.Stop(); recognition.Dispose(); aiHttp.Dispose(); observer.ForegroundChanged -= OnForeground; observer.Dispose();
         if (source is not null) { WTSUnRegisterSessionNotification(source.Handle); source.RemoveHook(WindowMessage); }
         tray.Visible = false; tray.Dispose(); web.Dispose(); store.Dispose();

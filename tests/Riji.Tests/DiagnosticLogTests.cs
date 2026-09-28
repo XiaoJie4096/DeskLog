@@ -54,4 +54,27 @@ public sealed class DiagnosticLogTests
         }
         finally { if (Directory.Exists(folder)) Directory.Delete(folder, true); }
     }
+
+    [Fact] public void StartupUiDelayRecordsProbeWindowAndLongDispatches()
+    {
+        var folder = Path.Combine(Path.GetTempPath(), "RijiLogs", Guid.NewGuid().ToString("N"));
+        try
+        {
+            var log = new DiagnosticLog(folder);
+            var posted = DateTimeOffset.Parse("2026-09-28T02:55:00Z");
+            log.StartupUiDelays(190, 3200, [new(posted, 420, 790, 370)]);
+            using var document = JsonDocument.Parse(File.ReadAllText(Path.Combine(log.DirectoryPath, "diagnostic.jsonl")));
+            var entry = document.RootElement;
+            Assert.Equal("StartupUiDelay", entry.GetProperty("code").GetString());
+            Assert.Equal(190, entry.GetProperty("monitoringStartMs").GetDouble());
+            Assert.Equal(3200, entry.GetProperty("monitoringEndMs").GetDouble());
+            Assert.Equal(50, entry.GetProperty("probeIntervalMs").GetInt32());
+            Assert.Equal(100, entry.GetProperty("thresholdMs").GetInt32());
+            var delay = entry.GetProperty("delays")[0];
+            Assert.Equal(420, delay.GetProperty("postedSinceStartMs").GetDouble());
+            Assert.Equal(370, delay.GetProperty("delayMs").GetDouble());
+            Assert.False(log.WriteFailed);
+        }
+        finally { if (Directory.Exists(folder)) Directory.Delete(folder, true); }
+    }
 }
