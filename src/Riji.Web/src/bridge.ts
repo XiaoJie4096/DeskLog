@@ -17,7 +17,8 @@ export type Snapshot = {
   currentApp: string | null; health: string; recording: boolean; timingStatus: string;
   apps: { appId: string; name: string; seconds: number }[];
   websites: { appId: string; appName?: string; sourceAppName?: string; domain: string; title: string | null; snippet: string | null; seconds: number }[];
-  browserConnections: number; browserError: string | null;
+  browserConnections: number; connectedBrowsers: ('chrome' | 'msedge' | 'firefox')[]; browserError: string | null;
+  browserExtensionPaths: { chromeEdge: string; firefox: string };
   hourlyDefaultPrompt: string; hourlySummaryError?: string | null; summaryBusy: boolean; summaryForm: SummaryForm | null; summaryPresets: PromptPreset[]; summaries: SummaryHeader[];
   maintenance: boolean; dataStatus: string | null; diagnosticLogFailed: boolean;
   recognition: { settings: CaptureSettings; defaultPrompt: string; categories: Category[]; busy: boolean; paused: boolean; error: string | null;

@@ -19,6 +19,8 @@ public sealed class BrowserSessions
     }
     private readonly Dictionary<string, Peer> peers = [];
     public int Connections(double now) => peers.Values.Count(peer => now - peer.Seen < 5);
+    public string[] ConnectedBrowsers(double now) => peers.Values.Where(peer => now - peer.Seen < 5)
+        .Select(peer => peer.Browser).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
     public void Clear() => peers.Clear();
     public void DisableTitles()
     {

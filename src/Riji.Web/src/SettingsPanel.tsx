@@ -4,6 +4,7 @@ import { RecognitionJobs } from './Recognition';
 import { WebsiteRules } from './WebsiteRules';
 import './settings-panel.css';
 import './settings-panel-fixes.css';
+import './browser-settings.css';
 
 type Tab = 'record' | 'capture' | 'ai' | 'review' | 'browser' | 'data';
 
@@ -31,7 +32,7 @@ export function SettingsPanel({ state, tab, busy, configure, run, onTabChange }:
       {tab === 'capture' && <CaptureSettingsPanel state={state} busy={busy} run={run} />}
       {tab === 'ai' && <AiProviderSettings state={state} busy={busy} run={run} />}
       {tab === 'review' && <ReviewSettings state={state} busy={busy} run={run} />}
-      {tab === 'browser' && <BrowserSettings state={state} busy={busy} configure={configure} />}
+      {tab === 'browser' && <BrowserSettings state={state} busy={busy} configure={configure} run={run} />}
       {tab === 'data' && <DataSettings state={state} busy={busy} run={run} />}
     </div>
   </>;
@@ -167,10 +168,48 @@ function ReviewSettings({ state, busy, run }: { state: Snapshot; busy: boolean; 
   </>;
 }
 
-function BrowserSettings({ state, busy, configure }: { state: Snapshot; busy: boolean; configure: Props['configure'] }) {
+const browsers = [
+  { id: 'chrome', name: 'Chrome', connection: 'chrome', manage: 'chrome://extensions' },
+  { id: 'edge', name: 'Edge', connection: 'msedge', manage: 'edge://extensions' },
+  { id: 'firefox', name: 'Firefox', connection: 'firefox', manage: 'about:debugging' }
+] as const;
+type Browser = typeof browsers[number];
+
+function BrowserSettings({ state, busy, configure, run }: Pick<Props, 'state' | 'busy' | 'configure' | 'run'>) {
+  const [guide, setGuide] = useState<{ browser: Browser; reconnect: boolean } | null>(null);
+  const path = guide?.browser.id === 'firefox' ? state.browserExtensionPaths.firefox : state.browserExtensionPaths.chromeEdge;
+  const environment = state.profile === 'Development' ? '开发版' : '正式版';
   return <>
+    <Section title="浏览器连接" meta={<button type="button" disabled={busy} onClick={() => void run('snapshot', { day: state.day })}>刷新状态</button>}>
+      <p className="browser-connection-description">连接后，日迹才能分别统计各个网站的使用时间。</p>
+      <div className="browser-connection-grid">
+        {browsers.map(browser => {
+          const connected = state.connectedBrowsers.includes(browser.connection);
+          return <div className={`browser-connection-card${connected ? ' connected' : ''}${state.browserError ? ' problem' : ''}`} key={browser.id}>
+            <div className="browser-connection-name"><img src={`/browser-icons/${browser.id}.svg`} alt="" /><strong>{browser.name}</strong><span className="browser-connection-dot" aria-hidden="true" /></div>
+            <span className="browser-connection-state">{state.browserError ? '连接服务异常' : connected ? '已连接，可以统计网站时间' : '未检测到连接'}</span>
+            <button type="button" className={connected ? 'secondary' : 'primary'} disabled={busy} onClick={() => setGuide({ browser, reconnect: connected })}>{connected ? '重新连接' : '安装扩展'}</button>
+          </div>;
+        })}
+      </div>
+      {state.browserError && <p role="alert" className="browser-connection-error">{state.browserError}</p>}
+    </Section>
     <Section title="网站归属" meta={<span className="settings-count">{(state.settings.websiteProjects ?? []).length} / 20</span>}><WebsiteRules state={state} /></Section>
-    <Section title="网页信息"><SettingRow label="记录网页标题" help="后续标题保存在本地；启用截图识别时可作为 AI 辅助信息。"><Switch label="记录网页标题" checked={state.settings.websiteTitles} disabled={busy} onChange={value => void configure({ websiteTitles: value })} /></SettingRow><p>已连接 {state.browserConnections} 个浏览器会话。安装日迹扩展后自动连接，无需配对码。</p>{state.browserError && <p role="alert" className="settings-error">{state.browserError}</p>}</Section>
+    <Section title="网页信息"><SettingRow label="记录网页标题" help="后续标题保存在本地；启用截图识别时可作为 AI 辅助信息。"><Switch label="记录网页标题" checked={state.settings.websiteTitles} disabled={busy} onChange={value => void configure({ websiteTitles: value })} /></SettingRow></Section>
+    {guide && <div className="overlay browser-guide-overlay" onMouseDown={event => { if (event.target === event.currentTarget && !busy) setGuide(null); }} onKeyDown={event => { if (event.key === 'Escape' && !busy) setGuide(null); }}>
+      <section className="modal browser-guide" role="dialog" aria-modal="true" aria-labelledby="browser-guide-title">
+        <div className="section-head"><div><span className="eyebrow">浏览器连接</span><h2 id="browser-guide-title">{guide.reconnect ? '重新连接' : '连接'} {guide.browser.name}</h2></div><button type="button" autoFocus disabled={busy} onClick={() => setGuide(null)} aria-label="关闭">×</button></div>
+        <p>{guide.reconnect ? '点击浏览器工具栏里的日迹图标，在打开的页面中点击“重新连接”。如果没有恢复，可以按下面的步骤重新加载扩展。' : guide.browser.id === 'firefox' ? 'Firefox 目前需要临时加载扩展；重启浏览器后要重新加载。' : '如果已经安装，请先打开浏览器；仍未连接时，可按下面的步骤安装。'}</p>
+        <ol>
+          <li>地址栏打开 {guide.browser.manage}（{guide.browser.id === 'firefox' ? '扩展调试' : '扩展管理'}）{guide.browser.id === 'firefox' ? '，选择“此 Firefox”。' : '。'}</li>
+          <li>{guide.browser.id === 'firefox' ? '点击“临时载入附加组件”。' : '打开“开发者模式”，点击“加载已解压的扩展程序”。'}</li>
+          <li>选择下方显示的{guide.browser.id === 'firefox' ? '文件' : '文件夹'}。</li>
+          <li>点击浏览器工具栏里的日迹图标，连接环境选择“{environment}”。</li>
+        </ol>
+        <div className="browser-guide-path"><span>{guide.browser.id === 'firefox' ? '扩展文件路径' : '扩展文件夹路径'}</span><code>{path}</code></div>
+        <div className="modal-footer"><button type="button" className="primary" disabled={busy} onClick={async () => { await run('openBrowserExtensionFolder', { browser: guide.browser.id }); setGuide(null); }}>{guide.browser.id === 'firefox' ? '打开所在文件夹' : '打开扩展目录'}</button></div>
+      </section>
+    </div>}
   </>;
 }
 

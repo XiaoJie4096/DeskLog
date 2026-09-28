@@ -54,6 +54,21 @@ public sealed class BrowserConnectionTests
         Assert.Equal(2, sessions.Connections(10.2)); Assert.Null(sessions.Evidence(At(10.2)));
     }
 
+    [Fact] public void ConnectedBrowsersRequireRecentReportsAndDeduplicateProfiles()
+    {
+        var sessions = new BrowserSessions();
+        foreach (var (browser, at) in new[] { ("chrome", 10.0), ("chrome", 10.1), ("msedge", 11.0), ("firefox", 12.0) })
+        {
+            var id = Guid.NewGuid().ToString();
+            var observation = At(at);
+            var probe = sessions.Challenge(id, browser, observation, false);
+            Assert.True(sessions.Report(new(id, probe.Nonce, 1, "none"), observation));
+        }
+        Assert.Equal(new[] { "chrome", "firefox", "msedge" }, sessions.ConnectedBrowsers(12.1));
+        Assert.Equal(new[] { "firefox", "msedge" }, sessions.ConnectedBrowsers(15.2));
+        Assert.Empty(sessions.ConnectedBrowsers(17));
+    }
+
     [Fact] public void DisablingTitlesInvalidatesInFlightConsentAndExistingTitleEvidence()
     {
         var sessions = new BrowserSessions(); var id = Guid.NewGuid().ToString();

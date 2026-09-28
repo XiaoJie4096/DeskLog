@@ -28,6 +28,8 @@ public sealed class MainWindow : Window
     private readonly string dataDir;
     private readonly string profile;
     private readonly string appVersion;
+    private readonly string chromeEdgeExtensionPath;
+    private readonly string firefoxExtensionPath;
     private readonly bool systemTest;
     private readonly BrowserSessions browserSessions = new();
     private readonly BrowserHttpServer? browser;
@@ -65,6 +67,8 @@ public sealed class MainWindow : Window
         aiHttp.Timeout = TimeSpan.FromMinutes(6);
         this.dataDir = dataDir; this.profile = profile;
         appVersion = ReadAppVersion();
+        chromeEdgeExtensionPath = Path.Combine(AppContext.BaseDirectory, "extensions", "chrome-edge");
+        firefoxExtensionPath = Path.Combine(AppContext.BaseDirectory, "extensions", "firefox", "manifest.json");
         diagnosticLog = new(dataDir);
         this.systemTest = systemTest;
         Title = "日迹" + (profile != "Production" ? " · 开发版" : "");
@@ -309,6 +313,7 @@ public sealed class MainWindow : Window
                 case "importData": await ImportBackup(); break;
                 case "clearData": await ClearData(); break;
                 case "openDataFolder": OpenDataFolder(); break;
+                case "openBrowserExtensionFolder": OpenBrowserExtensionFolder(root.GetProperty("browser").GetString()); break;
                 case "exit": Exit(); return;
                 default: throw new ArgumentException("未知命令。");
             }
@@ -331,6 +336,21 @@ public sealed class MainWindow : Window
         System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("explorer.exe", $"\"{folder}\"") { UseShellExecute = true });
     }
 
+    private void OpenBrowserExtensionFolder(string? browserName)
+    {
+        var manifest = browserName switch
+        {
+            "chrome" or "edge" => Path.Combine(chromeEdgeExtensionPath, "manifest.json"),
+            "firefox" => firefoxExtensionPath,
+            _ => throw new ArgumentException("未知浏览器。")
+        };
+        if (!File.Exists(manifest)) throw new InvalidOperationException("当前程序未找到对应的浏览器扩展文件。");
+        var folder = Path.GetDirectoryName(manifest)!;
+        var start = new System.Diagnostics.ProcessStartInfo("explorer.exe") { UseShellExecute = true };
+        start.ArgumentList.Add(folder);
+        System.Diagnostics.Process.Start(start);
+    }
+
     private void ApplyTitleBarTheme(string theme)
     {
         if (source is null) return;
@@ -347,11 +367,14 @@ public sealed class MainWindow : Window
         {
             var today = DayRange.Today(DateTimeOffset.Now, tracker.Settings, TimeZoneInfo.Local);
             var view = store.ViewDay(selectedDay, tracker.Settings, TimeZoneInfo.Local);
+            var browserNow = observer.Capture().MonotonicSeconds;
             Send(new { type = "snapshot", day = selectedDay, today,
                 settings = tracker.Settings, mode = tracker.State, currentApp = tracker.CurrentApp?.Name,
                 dataStatus, maintenance, diagnosticLogFailed = diagnosticLog.WriteFailed,
                 health = storageError ?? (observer.HooksAvailable ? tracker.Health : "输入或前台事件钩子不可用，请重启检查权限"),
-                apps = view.Apps, websites = view.Websites, browserConnections = browserSessions.Connections(observer.Capture().MonotonicSeconds), browserError = browser?.Error,
+                apps = view.Apps, websites = view.Websites, browserConnections = browserSessions.Connections(browserNow),
+                connectedBrowsers = browserSessions.ConnectedBrowsers(browserNow), browserError = browser?.Error,
+                browserExtensionPaths = new { chromeEdge = chromeEdgeExtensionPath, firefox = firefoxExtensionPath },
                 recognition = new { settings = recognition.Settings, defaultPrompt = RecognitionPrompts.Default, categories = recognition.Categories, busy = recognition.Busy, paused = recognition.Paused,
                     error = recognition.Error, configured = recognition.Configuration is not null, endpoint = recognition.Configuration?.Endpoint, model = recognition.Configuration?.Model, summaryModel = recognition.Configuration?.SummaryModel ?? recognition.Configuration?.Model,
                     jobs = store.JobCounts(), latestSample = store.LatestRecognizedSample(), records = view.Records },

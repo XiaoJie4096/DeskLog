@@ -10,6 +10,7 @@
 | Microsoft.Web.WebView2 | NuGet 包内 Microsoft 许可条款 |
 | Microsoft.Data.Sqlite、SQLitePCLRaw 及传递依赖 | 对应 NuGet 包内许可和 nuspec 元数据 |
 | xUnit、Microsoft.NET.Test.Sdk 等测试依赖 | 对应 NuGet 包内许可和元数据 |
+| SuperTinyIcons 浏览器图标 | MIT；源码 `src/Riji.Web/public/browser-icons/LICENSE.txt`，发布包 `Web/browser-icons/LICENSE.txt` |
 
 精确版本以 package-lock.json 和各项目 packages.lock.json 为准。
 

@@ -1,0 +1,25 @@
+:root{--browser-connected:#91b395}
+:root[data-theme=light]{--browser-connected:#438458}
+.browser-connection-description{margin:0 0 14px;font-size:12px;line-height:1.65;color:var(--muted)}
+.browser-connection-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:11px}
+.browser-connection-card{display:flex;flex-direction:column;gap:10px;min-width:0;min-height:148px;padding:15px;border:1px solid var(--line);border-radius:7px;background:var(--surface)}
+.browser-connection-name{display:flex;align-items:center;gap:9px;min-width:0}
+.browser-connection-name img{width:23px;height:23px;object-fit:contain;flex:none}
+.browser-connection-name strong{font-size:14px;font-weight:600}
+.browser-connection-dot{width:7px;height:7px;flex:none;border-radius:50%;background:var(--muted)}
+.browser-connection-card.connected .browser-connection-dot{background:var(--browser-connected)}
+.browser-connection-state{min-height:18px;color:var(--muted);font-size:12px;line-height:1.45}
+.browser-connection-card.connected .browser-connection-state{color:var(--browser-connected)}
+.browser-connection-card.problem .browser-connection-state{color:var(--danger,#d9957c)}
+.browser-connection-card button{width:100%;margin-top:auto;font-weight:600}
+.browser-connection-card button.secondary{font-weight:500}
+.browser-connection-error{padding:11px 13px;margin:12px 0 0;border-left:3px solid var(--danger,#d9957c);background:color-mix(in srgb,var(--danger,#d9957c) 11%,transparent);color:var(--ink)}
+.browser-guide{width:min(520px,calc(100vw - 40px));border-radius:8px}
+.browser-guide .section-head h2{margin-top:7px;font-size:19px}
+.browser-guide p,.browser-guide li{font-size:13px;line-height:1.8;color:var(--muted)}
+.browser-guide ol{padding-left:20px;margin:20px 0}
+.browser-guide li{padding-bottom:8px}
+.browser-guide-path{display:grid;gap:7px;margin:2px 0 20px}
+.browser-guide-path span{color:var(--muted);font-size:12px}
+.browser-guide-path code{display:block;padding:11px 12px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink);font:12px Consolas,monospace;overflow-wrap:anywhere}
+@media(max-width:700px){.browser-connection-grid{grid-template-columns:1fr}.browser-connection-card{min-height:116px}}
