@@ -68,7 +68,7 @@ public sealed class MainWindow : Window
         this.dataDir = dataDir; this.profile = profile;
         appVersion = ReadAppVersion();
         chromeEdgeExtensionPath = Path.Combine(AppContext.BaseDirectory, "extensions", "chrome-edge");
-        firefoxExtensionPath = Path.Combine(AppContext.BaseDirectory, "extensions", "firefox", "manifest.json");
+        firefoxExtensionPath = Path.Combine(AppContext.BaseDirectory, "extensions", "firefox", "riji-firefox.xpi");
         diagnosticLog = new(dataDir);
         this.systemTest = systemTest;
         Title = "日迹" + (profile != "Production" ? " · 开发版" : "");
@@ -336,16 +336,17 @@ public sealed class MainWindow : Window
         System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("explorer.exe", $"\"{folder}\"") { UseShellExecute = true });
     }
 
+    // Open the folder containing the selected browser's installable extension.
     private void OpenBrowserExtensionFolder(string? browserName)
     {
-        var manifest = browserName switch
+        var extensionFile = browserName switch
         {
             "chrome" or "edge" => Path.Combine(chromeEdgeExtensionPath, "manifest.json"),
             "firefox" => firefoxExtensionPath,
             _ => throw new ArgumentException("未知浏览器。")
         };
-        if (!File.Exists(manifest)) throw new InvalidOperationException("当前程序未找到对应的浏览器扩展文件。");
-        var folder = Path.GetDirectoryName(manifest)!;
+        if (!File.Exists(extensionFile)) throw new InvalidOperationException("当前程序未找到对应的浏览器扩展文件。");
+        var folder = Path.GetDirectoryName(extensionFile)!;
         var start = new System.Diagnostics.ProcessStartInfo("explorer.exe") { UseShellExecute = true };
         start.ArgumentList.Add(folder);
         System.Diagnostics.Process.Start(start);

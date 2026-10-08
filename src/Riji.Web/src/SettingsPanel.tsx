@@ -171,14 +171,14 @@ function ReviewSettings({ state, busy, run }: { state: Snapshot; busy: boolean; 
 const browsers = [
   { id: 'chrome', name: 'Chrome', connection: 'chrome', manage: 'chrome://extensions' },
   { id: 'edge', name: 'Edge', connection: 'msedge', manage: 'edge://extensions' },
-  { id: 'firefox', name: 'Firefox', connection: 'firefox', manage: 'about:debugging' }
+  { id: 'firefox', name: 'Firefox', connection: 'firefox', manage: 'about:addons' }
 ] as const;
 type Browser = typeof browsers[number];
 
 function BrowserSettings({ state, busy, configure, run }: Pick<Props, 'state' | 'busy' | 'configure' | 'run'>) {
   const [guide, setGuide] = useState<{ browser: Browser; reconnect: boolean } | null>(null);
   const path = guide?.browser.id === 'firefox' ? state.browserExtensionPaths.firefox : state.browserExtensionPaths.chromeEdge;
-  const environment = state.profile === 'Development' ? '开发版' : '正式版';
+  const isDevelopment = state.profile === 'Development';
   return <>
     <Section title="浏览器连接" meta={<button type="button" disabled={busy} onClick={() => void run('snapshot', { day: state.day })}>刷新状态</button>}>
       <p className="browser-connection-description">连接后，日迹才能分别统计各个网站的使用时间。</p>
@@ -199,12 +199,13 @@ function BrowserSettings({ state, busy, configure, run }: Pick<Props, 'state' | 
     {guide && <div className="overlay browser-guide-overlay" onMouseDown={event => { if (event.target === event.currentTarget && !busy) setGuide(null); }} onKeyDown={event => { if (event.key === 'Escape' && !busy) setGuide(null); }}>
       <section className="modal browser-guide" role="dialog" aria-modal="true" aria-labelledby="browser-guide-title">
         <div className="section-head"><div><span className="eyebrow">浏览器连接</span><h2 id="browser-guide-title">{guide.reconnect ? '重新连接' : '连接'} {guide.browser.name}</h2></div><button type="button" autoFocus disabled={busy} onClick={() => setGuide(null)} aria-label="关闭">×</button></div>
-        <p>{guide.reconnect ? '点击浏览器工具栏里的日迹图标，在打开的页面中点击“重新连接”。如果没有恢复，可以按下面的步骤重新加载扩展。' : guide.browser.id === 'firefox' ? 'Firefox 目前需要临时加载扩展；重启浏览器后要重新加载。' : '如果已经安装，请先打开浏览器；仍未连接时，可按下面的步骤安装。'}</p>
+        <p>{guide.reconnect ? `点击浏览器工具栏里的日迹图标，在打开的页面中点击“重新连接”。如果没有恢复，可以按下面的步骤${guide.browser.id === 'firefox' ? '重新安装' : '重新加载'}扩展。` : guide.browser.id === 'firefox' ? '支持 Firefox 140 及以上版本。安装后，重启浏览器也可继续使用。' : '如果已经安装，请先打开浏览器；仍未连接时，可按下面的步骤安装。'}</p>
         <ol>
-          <li>地址栏打开 {guide.browser.manage}（{guide.browser.id === 'firefox' ? '扩展调试' : '扩展管理'}）{guide.browser.id === 'firefox' ? '，选择“此 Firefox”。' : '。'}</li>
-          <li>{guide.browser.id === 'firefox' ? '点击“临时载入附加组件”。' : '打开“开发者模式”，点击“加载已解压的扩展程序”。'}</li>
+          <li>地址栏打开 {guide.browser.manage}（扩展管理）。</li>
+          <li>{guide.browser.id === 'firefox' ? '点击右上角齿轮，选择“从文件安装附加组件”。' : '打开“开发者模式”，点击“加载已解压的扩展程序”。'}</li>
           <li>选择下方显示的{guide.browser.id === 'firefox' ? '文件' : '文件夹'}。</li>
-          <li>点击浏览器工具栏里的日迹图标，连接环境选择“{environment}”。</li>
+          {guide.browser.id === 'firefox' && <li>查看 Firefox 的权限与数据使用提示，确认后完成安装。</li>}
+          {isDevelopment && <li>点击浏览器工具栏里的日迹图标，连接环境选择“开发版”。</li>}
         </ol>
         <div className="browser-guide-path"><span>{guide.browser.id === 'firefox' ? '扩展文件路径' : '扩展文件夹路径'}</span><code>{path}</code></div>
         <div className="modal-footer"><button type="button" className="primary" disabled={busy} onClick={async () => { await run('openBrowserExtensionFolder', { browser: guide.browser.id }); setGuide(null); }}>{guide.browser.id === 'firefox' ? '打开所在文件夹' : '打开扩展目录'}</button></div>

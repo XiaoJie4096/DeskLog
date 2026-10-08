@@ -60,7 +60,8 @@ test('background windows cannot report foreground activity', async () => { asser
 for (const url of ['chrome://settings', 'edge://newtab', 'file:///C:/notes.txt', 'about:blank'])
   test(`non-web URL is excluded: ${url}`, async () => { assert.equal((await query({ url })).type, 'none'); });
 
-async function connectHttp(profile, fail = false, browser = 'chrome') {
+// Simulate the local desktop handshake and inspect the resulting HTTP reports.
+async function connectHttp(profile, fail = false, browser = 'chrome', allowTitles = false) {
   const calls = [], states = [];
   const event = { addListener() {} };
   const chrome = {
@@ -71,11 +72,11 @@ async function connectHttp(profile, fail = false, browser = 'chrome') {
     storage: { local: { get: async () => ({ profile }), set: async value => states.push(value) }, onChanged: event },
   };
   const context = vm.createContext({ ...(browser === 'firefox' ? { browser: chrome } : { chrome }), URL, Date, crypto: require('node:crypto').webcrypto, AbortController,
-    navigator: { userAgent: browser === 'firefox' ? 'Firefox/128.0' : browser === 'msedge' ? 'Edg/130.0' : 'Chrome' }, setTimeout: () => 0, clearTimeout() {},
+    navigator: { userAgent: browser === 'firefox' ? 'Firefox/140.0' : browser === 'msedge' ? 'Edg/130.0' : 'Chrome' }, setTimeout: () => 0, clearTimeout() {},
     fetch: async (url, options) => {
       calls.push({ url, options });
       if (fail) throw new Error('offline');
-      return { ok: true, status: 200, json: async () => ({ nonce: 'test-nonce', titles: false }) };
+      return { ok: true, status: 200, json: async () => ({ nonce: 'test-nonce', titles: allowTitles }) };
     },
   });
   vm.runInContext(source, context);
@@ -109,8 +110,24 @@ test('Firefox manifest uses the shared scripts and a stable Gecko identity', () 
   const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, '../browser-extension/manifest.firefox.json'), 'utf8'));
   assert.deepEqual(manifest.background, { scripts: ['worker.js'] });
   assert.equal(manifest.browser_specific_settings.gecko.id, 'riji-browser@riji.local');
+  assert.equal(manifest.browser_specific_settings.gecko.strict_min_version, '140.0');
+  assert.deepEqual(manifest.browser_specific_settings.gecko.data_collection_permissions, {
+    required: ['browsingActivity', 'websiteContent'],
+  });
+  assert.equal(manifest.optional_permissions, undefined);
+  assert.equal(manifest.browser_specific_settings.gecko_android, undefined);
   assert.equal(manifest.incognito, 'not_allowed');
   assert.deepEqual(manifest.permissions, ['tabs', 'storage', 'alarms']);
+});
+
+for (const allowTitles of [false, true]) test(`Firefox follows the desktop title setting: ${allowTitles}`, async () => {
+  const { calls } = await connectHttp('production', false, 'firefox', allowTitles);
+  assert.equal(calls.length, 2);
+  const report = JSON.parse(calls[1].options.body);
+  assert.equal(report.domain, 'example.com');
+  assert.equal(report.title, allowTitles ? 'private title' : null);
+  assert.equal(calls[1].options.body.includes('hidden'), false);
+  assert.equal(calls[1].options.body.includes('/path'), false);
 });
 
 test('connection failure only contacts the selected environment endpoint', async () => {

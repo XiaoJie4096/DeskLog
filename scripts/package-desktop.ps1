@@ -1,6 +1,7 @@
 ﻿param()
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
+& (Join-Path $PSScriptRoot 'verify-firefox-extension.ps1')
 $sourceCommit = & git -C $projectRoot rev-parse HEAD
 if ($LASTEXITCODE -ne 0) { throw '无法确定源码提交。' }
 $sourceChanges = @(& git -C $projectRoot status --porcelain)
@@ -23,12 +24,7 @@ Copy-Item -LiteralPath (Join-Path $projectRoot 'scripts/install-desktop.ps1') -D
 Copy-Item -LiteralPath (Join-Path $projectRoot 'scripts/restore-upgrade-backup.ps1') -Destination $packageRoot
 Copy-Item -LiteralPath (Join-Path $projectRoot 'scripts/rollback-desktop.ps1') -Destination $packageRoot
 Copy-Item -LiteralPath (Join-Path $projectRoot 'browser-extension') -Destination $packageRoot -Recurse
-$firefoxRoot = Join-Path $packageRoot 'browser-extension-firefox'
-New-Item -ItemType Directory -Path $firefoxRoot | Out-Null
-foreach ($name in @('worker.js','options.js','options.html','options.css')) {
-    Copy-Item -LiteralPath (Join-Path $projectRoot ('browser-extension/' + $name)) -Destination $firefoxRoot
-}
-Copy-Item -LiteralPath (Join-Path $projectRoot 'browser-extension/manifest.firefox.json') -Destination (Join-Path $firefoxRoot 'manifest.json')
+# The desktop publish output already contains the unchanged signed Firefox XPI.
 $legalRoot = Join-Path $packageRoot 'ThirdParty'
 New-Item -ItemType Directory -Path $legalRoot | Out-Null
 $assets = Get-Content -LiteralPath (Join-Path $projectRoot 'src/Riji.Desktop/obj/project.assets.json') -Raw | ConvertFrom-Json

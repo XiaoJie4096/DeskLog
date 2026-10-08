@@ -16,7 +16,7 @@ try {
     if ($manifests.Count -ne 1) { throw 'Expected exactly one hash manifest.' }
     $manifest = $manifests[0]
     $prefix = $manifest.Substring(0, $manifest.Length - 'files.sha256'.Length)
-    foreach ($required in @('Riji.Desktop.exe','install-desktop.ps1','restore-upgrade-backup.ps1','rollback-desktop.ps1','browser-extension/manifest.json','README.md')) {
+    foreach ($required in @('Riji.Desktop.exe','install-desktop.ps1','restore-upgrade-backup.ps1','rollback-desktop.ps1','browser-extension/manifest.json','extensions/firefox/riji-firefox.xpi','README.md')) {
         if (-not $files.ContainsKey($prefix + $required)) { throw "Missing required file: $required" }
     }
     $reader = [IO.StreamReader]::new($files[$manifest].Open())

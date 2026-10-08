@@ -10,8 +10,8 @@
   "action": { "default_title": "日迹网页统计设置" },
   "incognito": "not_allowed",
   "browser_specific_settings": {
-    "gecko": { "id": "riji-browser@riji.local", "strict_min_version": "128.0",
-      "data_collection_permissions": { "required": ["browsingActivity"] }
+    "gecko": { "id": "riji-browser@riji.local", "strict_min_version": "140.0",
+      "data_collection_permissions": { "required": ["browsingActivity", "websiteContent"] }
     }
   }
 }

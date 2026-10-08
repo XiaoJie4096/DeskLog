@@ -5,6 +5,7 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
+& (Join-Path $PSScriptRoot 'verify-firefox-extension.ps1')
 $version = $Version
 $outputRoot = Join-Path $projectRoot $OutputDirectory
 $outputBase = if ($OutputBaseName) { $OutputBaseName } else { 'DeskLog-Setup-v' + $version }
@@ -45,13 +46,10 @@ Copy-Item -LiteralPath (Join-Path $projectRoot 'THIRD-PARTY-NOTICES.md') -Destin
 $chromeEdge = Join-Path $extensions 'chrome-edge'
 $firefox = Join-Path $extensions 'firefox'
 New-Item -ItemType Directory -Path $chromeEdge,$firefox -Force | Out-Null
-foreach ($name in @('worker.js','options.js','options.html','options.css','manifest.json')) {
+foreach ($name in @('worker.js','options.js','options.html','options.css','privacy.html','LICENSE.txt','manifest.json')) {
     Copy-Item -LiteralPath (Join-Path $projectRoot ('browser-extension/' + $name)) -Destination $chromeEdge
 }
-foreach ($name in @('worker.js','options.js','options.html','options.css')) {
-    Copy-Item -LiteralPath (Join-Path $projectRoot ('browser-extension/' + $name)) -Destination $firefox
-}
-Copy-Item -LiteralPath (Join-Path $projectRoot 'browser-extension/manifest.firefox.json') -Destination (Join-Path $firefox 'manifest.json')
+Copy-Item -LiteralPath (Join-Path $projectRoot 'browser-extension/signed/riji-firefox.xpi') -Destination $firefox
 Copy-Item -LiteralPath (Join-Path $projectRoot 'docs/licenses/Apache-2.0.txt') -Destination $thirdParty
 
 $inno = @(

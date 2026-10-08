@@ -1,10 +1,11 @@
 $ErrorActionPreference = 'Stop'
+Add-Type -AssemblyName System.IO.Compression.FileSystem
 # Build isolated archive fixtures; never alter the actual release package.
 $root = Join-Path ([IO.Path]::GetTempPath()) ('Riji-Integrity-' + [guid]::NewGuid().ToString('N'))
 [IO.Directory]::CreateDirectory($root) | Out-Null
 $verifier = Join-Path $PSScriptRoot 'verify-package.ps1'
-$required = @('Riji.Desktop.exe','install-desktop.ps1','restore-upgrade-backup.ps1','rollback-desktop.ps1','browser-extension/manifest.json','README.md')
-foreach ($scenario in @('valid','tampered','unlisted','missing')) {
+$required = @('Riji.Desktop.exe','install-desktop.ps1','restore-upgrade-backup.ps1','rollback-desktop.ps1','browser-extension/manifest.json','extensions/firefox/riji-firefox.xpi','README.md')
+foreach ($scenario in @('valid','tampered','unlisted','missing','missing-firefox')) {
     $path = Join-Path $root ($scenario + '.zip')
     $zip = [IO.Compression.ZipFile]::Open($path, [IO.Compression.ZipArchiveMode]::Create)
     try {
@@ -15,6 +16,7 @@ foreach ($scenario in @('valid','tampered','unlisted','missing')) {
             try { $hash = [BitConverter]::ToString($sha.ComputeHash($bytes)).Replace('-', '') } finally { $sha.Dispose() }
             $manifest += "$hash  $name"
             if ($scenario -eq 'missing' -and $name -eq 'README.md') { continue }
+            if ($scenario -eq 'missing-firefox' -and $name -eq 'extensions/firefox/riji-firefox.xpi') { continue }
             if ($scenario -eq 'tampered' -and $name -eq 'README.md') { $bytes = [Text.Encoding]::UTF8.GetBytes('changed fixture') }
             $stream = $zip.CreateEntry('package/' + $name).Open()
             try { $stream.Write($bytes, 0, $bytes.Length) } finally { $stream.Dispose() }

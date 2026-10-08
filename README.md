@@ -27,7 +27,7 @@ AI 功能需要用户自行配置服务地址、模型和密钥。启用后，�
 
 ## 浏览器扩展
 
-安装目录的 `extensions` 文件夹中包含 Chrome / Edge 和 Firefox 的未打包扩展。`browser-extension` 目录支持开发加载；Firefox 开发版可先执行：
+安装目录的 `extensions` 文件夹中包含 Chrome / Edge 的未打包扩展和 Firefox 的签名 XPI。Firefox 140 及以上版本可在 `about:addons` 的齿轮菜单选择“从文件安装附加组件”，安装 `extensions/firefox/riji-firefox.xpi`，重启浏览器无需重装。`browser-extension` 目录支持开发加载；Firefox 开发版可先执行：
 
 ```powershell
 node scripts/prepare-browser-extension.cjs firefox
