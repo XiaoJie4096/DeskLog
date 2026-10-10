@@ -73,6 +73,7 @@ function PromptModal({ open, title, description, value, defaultValue, busy, onCl
   </div>;
 }
 
+// Edit recording and idle settings through the existing persisted settings command.
 function RecordSettings({ state, busy, configure }: Pick<Props, 'state' | 'busy' | 'configure'>) {
   const [idle, setIdle] = useState(String(state.settings.idleSeconds));
   useEffect(() => setIdle(String(state.settings.idleSeconds)), [state.settings.idleSeconds]);
@@ -84,6 +85,7 @@ function RecordSettings({ state, busy, configure }: Pick<Props, 'state' | 'busy'
     </Section>
     <Section title="离开判定">
       <SettingRow label="无有效操作后离开" help="30–3600 秒，默认 120 秒。轻微鼠标漂移不会恢复。"><form onSubmit={event => { event.preventDefault(); void configure({ idleSeconds: Number(idle) }); }}><input aria-label="无有效操作后离开" type="number" min="30" max="3600" value={idle} onChange={event => setIdle(event.target.value)} /><button disabled={busy}>保存</button></form></SettingRow>
+      <SettingRow label="媒体播放时不自动离开" help="每 5 秒检查前台应用的媒体播放状态，播放中刷新空闲计时。视频和音乐都适用；后台标签页也可能计入，已离开时不会自动恢复。"><Switch label="媒体播放时不自动离开" checked={state.settings.mediaAutoStay} disabled={busy} onChange={value => void configure({ mediaAutoStay: value })} /></SettingRow>
     </Section>
     <Section title="一天的起点">
       <SettingRow label="夜猫子模式" help="开启后，今天、回顾、统计和按天总结都按设定时间计算。"><Switch label="夜猫子模式" checked={state.settings.nightMode} disabled={busy} onChange={value => void configure({ nightMode: value })} /></SettingRow>

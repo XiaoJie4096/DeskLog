@@ -1,6 +1,6 @@
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
-$executable = Join-Path $projectRoot 'src/Riji.Desktop/bin/Debug/net10.0-windows/Riji.Desktop.exe'
+$executable = Join-Path $projectRoot 'src/Riji.Desktop/bin/Debug/net10.0-windows10.0.19041.0/Riji.Desktop.exe'
 # Release the development instance before rebuilding locked assemblies.
 if (Test-Path -LiteralPath $executable) {
     $quit = Start-Process -FilePath $executable -ArgumentList '--quit' -PassThru -WindowStyle Hidden

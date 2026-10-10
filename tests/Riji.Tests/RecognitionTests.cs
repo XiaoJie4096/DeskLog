@@ -498,6 +498,35 @@ public sealed class RecognitionTests
         Assert.False(File.Exists(Path.Combine(fixture.Folder, "Screenshots", oldestId + ".png")));
     }
 
+    [Fact] public async Task NoScreenAutomaticAwayAndResumeNeverEnableNewCaptures()
+    {
+        using var fixture = new Fixture(); using var handler = new CompletingHandler();
+        var tracker = new Tracker(new(), new(), TimeZoneInfo.Utc);
+        Observation At(int second, bool input = false) => new(Epoch.AddSeconds(second), second, new("app", "app"), input ? second : 0);
+        tracker.SetMode(RecordingMode.NoScreen, 5, At(0));
+        var captures = 0;
+        using var pipeline = new RecognitionPipeline(fixture.Store, new(new HttpClient(handler)), fixture.Folder,
+            path => { captures++; File.WriteAllBytes(path, [137, 80, 78, 71]); },
+            () => tracker.State.Mode is RecordingMode.Default or RecordingMode.Locked, x => x, x => x);
+        pipeline.Configure(new(true), Epoch);
+        for (var second = 1; second <= 120; second++)
+        {
+            tracker.Observe(At(second));
+            await pipeline.Pulse(Epoch.AddSeconds(second));
+        }
+        Assert.Equal(RecordingMode.Away, tracker.State.Mode);
+        tracker.Observe(At(121, input: true));
+        Assert.Equal(RecordingMode.NoScreen, tracker.State.Mode);
+        for (var second = 122; second <= 190; second++)
+        {
+            tracker.Observe(At(second, input: true));
+            await pipeline.Pulse(Epoch.AddSeconds(second));
+        }
+        Assert.Equal(0, captures);
+        Assert.Equal(0, handler.Calls);
+        Assert.Empty(fixture.Store.Jobs(JobStatus.Pending));
+    }
+
     [Theory]
     [InlineData(RecordingMode.Away, 0)]
     [InlineData(RecordingMode.NoScreen, 10)]

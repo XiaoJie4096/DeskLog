@@ -193,13 +193,102 @@ public sealed class TrackingTests
         Assert.Empty(t.Pending);
     }
 
-    [Theory] [InlineData(RecordingMode.Locked)] [InlineData(RecordingMode.NoScreen)]
-    public void TimedModeIgnoresIdleUntilExactExpiry(RecordingMode mode)
+    [Fact]
+    public void LockedModeIgnoresIdleUntilExactExpiry()
     {
-        var t = New(); t.SetMode(mode, 3, At(0));
+        var t = New(); t.SetMode(RecordingMode.Locked, 3, At(0));
         for (var i = 1; i <= 181; i++) t.Observe(At(i, input: 0));
         Assert.Equal(180, t.Pending.Sum(x => x.Seconds));
         Assert.Equal(RecordingMode.Away, t.State.Mode);
+    }
+
+    [Fact] public void NoScreenIdlePausesTimingAndInputRestoresOriginalDeadline()
+    {
+        var t = New(); t.SetMode(RecordingMode.NoScreen, 5, At(0));
+        for (var i = 1; i <= 119; i++) t.Observe(At(i, input: 0));
+        t.Observe(At(120.5, input: 0)); t.Observe(At(121, input: 0));
+        Assert.Equal(120, t.Pending.Sum(x => x.Seconds));
+        Assert.False(t.IsTimingActive);
+        Assert.Equal(RecordingMode.Away, t.State.Mode);
+        Assert.Equal(Epoch.AddMinutes(5), t.State.ResumeNoScreenUntil);
+        Assert.Null(t.State.Until);
+        t.Observe(At(122)); t.Observe(At(123));
+        Assert.Equal(121, t.Pending.Sum(x => x.Seconds));
+        Assert.Equal(RecordingMode.NoScreen, t.State.Mode);
+        Assert.Equal(Epoch.AddMinutes(5), t.State.Until);
+        Assert.Null(t.State.ResumeNoScreenUntil);
+    }
+
+    [Fact] public void NoScreenExpiryWhileAwayDoesNotResumeRecording()
+    {
+        var t = New(); t.SetMode(RecordingMode.NoScreen, 3, At(0));
+        for (var i = 1; i <= 181; i++) t.Observe(At(i, input: 0));
+        Assert.Equal(120, t.Pending.Sum(x => x.Seconds));
+        Assert.Equal(RecordingMode.Away, t.State.Mode);
+        Assert.Null(t.State.ResumeNoScreenUntil);
+        t.Observe(At(182)); t.Observe(At(183));
+        Assert.Equal(RecordingMode.Default, t.State.Mode);
+        Assert.Equal(121, t.Pending.Sum(x => x.Seconds));
+    }
+
+    [Fact] public void NoScreenExpiryWhileActiveReturnsToDefault()
+    {
+        var t = New(); t.SetMode(RecordingMode.NoScreen, 1, At(0));
+        for (var i = 1; i < 60; i++) t.Observe(At(i));
+        Assert.Equal(RecordingMode.NoScreen, t.State.Mode);
+        t.Observe(At(60));
+        Assert.Equal(RecordingMode.Default, t.State.Mode);
+        Assert.Equal(60, t.Pending.Sum(x => x.Seconds));
+    }
+
+    [Theory] [InlineData(true)] [InlineData(false)]
+    public void NoScreenHonorsDesktopAutoAwaySetting(bool desktopAutoAway)
+    {
+        var t = new Tracker(new(DesktopAutoAway: desktopAutoAway), new(), TimeZoneInfo.Utc);
+        t.SetMode(RecordingMode.NoScreen, 5, At(0) with { DesktopShown = true });
+        for (var i = 1; i <= 10; i++) t.Observe(At(i, input: 0) with { DesktopShown = true });
+        Assert.Equal(desktopAutoAway ? RecordingMode.Away : RecordingMode.NoScreen, t.State.Mode);
+        Assert.Equal(desktopAutoAway ? 5 : 10, t.Pending.Sum(x => x.Seconds));
+    }
+
+    [Theory] [InlineData(RecordingMode.Default)] [InlineData(RecordingMode.Away)]
+    public void ExplicitModeChangeClearsAutomaticNoScreenResume(RecordingMode mode)
+    {
+        var t = New(); t.SetMode(RecordingMode.NoScreen, 5, At(0));
+        for (var i = 1; i <= 120; i++) t.Observe(At(i, input: 0));
+        t.SetMode(mode, null, At(121));
+        Assert.Null(t.State.ResumeNoScreenUntil);
+        t.Observe(At(152)); t.Observe(At(153));
+        Assert.Equal(RecordingMode.Default, t.State.Mode);
+    }
+
+    [Fact] public void EnteringNoScreenCountsAsExplicitResumeWithoutFreshHookEvent()
+    {
+        var t = New(); t.Observe(At(200, input: 0));
+        t.SetMode(RecordingMode.NoScreen, 5, At(201, input: 0));
+        t.Observe(At(202, input: 0)); t.Observe(At(203, input: 0));
+        Assert.Equal(RecordingMode.NoScreen, t.State.Mode);
+        Assert.Equal(2, t.Pending.Sum(x => x.Seconds));
+    }
+
+    [Fact] public void RestartWhileAutomaticallyAwayPreservesNoScreenResume()
+    {
+        var path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "RijiTests", Guid.NewGuid().ToString(), "test.db");
+        try
+        {
+            var t = New(); t.SetMode(RecordingMode.NoScreen, 5, At(0));
+            for (var i = 1; i <= 120; i++) t.Observe(At(i, input: 0));
+            using (var store = new LocalStore(path)) store.Save(t.Pending, t.Settings, t.State);
+            using (var store = new LocalStore(path))
+            {
+                var restarted = new Tracker(store.Read<TrackingSettings>("settings")!, store.Read<ModeState>("mode")!, TimeZoneInfo.Utc);
+                restarted.Observe(At(150, input: 0)); restarted.Observe(At(151));
+                Assert.Equal(RecordingMode.NoScreen, restarted.State.Mode);
+                Assert.Equal(Epoch.AddMinutes(5), restarted.State.Until);
+                Assert.Empty(restarted.Pending);
+            }
+        }
+        finally { Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools(); Directory.Delete(System.IO.Path.GetDirectoryName(path)!, true); }
     }
 
     [Fact] public void NonUtcMidnightAndTimezoneChangeConserveTime()

@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <OutputType>WinExe</OutputType><TargetFramework>net10.0-windows</TargetFramework>
+    <OutputType>WinExe</OutputType><TargetFramework>net10.0-windows10.0.19041.0</TargetFramework><SupportedOSPlatformVersion>7.0</SupportedOSPlatformVersion>
     <UseWPF>true</UseWPF><UseWindowsForms>true</UseWindowsForms>
     <ApplicationManifest>app.manifest</ApplicationManifest><ApplicationIcon>../../assets/icons/riji.ico</ApplicationIcon>
   </PropertyGroup>

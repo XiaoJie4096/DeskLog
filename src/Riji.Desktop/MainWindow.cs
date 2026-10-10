@@ -23,6 +23,7 @@ public sealed class MainWindow : Window
     private readonly LocalStore store;
     private Tracker tracker;
     private readonly WindowsObserver observer;
+    private readonly WindowsMediaMonitor mediaMonitor = new();
     private readonly DispatcherTimer timer;
     private readonly System.Windows.Forms.NotifyIcon tray;
     private readonly string dataDir;
@@ -181,11 +182,14 @@ public sealed class MainWindow : Window
         }
     }
 
+    // Attach confirmed media activity without changing the observer's real input timestamps.
     private Observation Capture()
     {
         var raw = observer.Capture();
         var evidence = browserSessions.Evidence(raw);
-        return raw with { Website = evidence };
+        var media = mediaMonitor.CaptureActivity(raw, !maintenance && !exiting && tracker.Settings.AutoRecord
+            && tracker.Settings.MediaAutoStay && tracker.State.Mode is RecordingMode.Default or RecordingMode.NoScreen);
+        return raw with { Website = evidence, MediaActivitySeconds = media };
     }
 
     private void InitializePipelines()
@@ -547,9 +551,10 @@ public sealed class MainWindow : Window
         Exit();
     }
 
+    // Stop background observation before releasing the desktop and persistence resources.
     private void Cleanup()
     {
-        timer.Stop(); recognition.Dispose(); aiHttp.Dispose(); observer.ForegroundChanged -= OnForeground; observer.Dispose();
+        timer.Stop(); mediaMonitor.Dispose(); recognition.Dispose(); aiHttp.Dispose(); observer.ForegroundChanged -= OnForeground; observer.Dispose();
         if (source is not null) { WTSUnRegisterSessionNotification(source.Handle); source.RemoveHook(WindowMessage); }
         tray.Visible = false; tray.Dispose(); web.Dispose(); store.Dispose();
     }

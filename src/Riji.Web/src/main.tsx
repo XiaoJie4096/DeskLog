@@ -63,7 +63,7 @@ function App() {
     {dialog && <div className="overlay" onClick={e => { if (e.target === e.currentTarget && !busy) setDialog(false); }}>
       <section className="modal" role="dialog" aria-modal="true" aria-labelledby="mode-title">
         <div className="section-head"><h2 id="mode-title">{modes[mode]}</h2><button disabled={busy} onClick={() => setDialog(false)} aria-label="关闭">×</button></div>
-        <p>{mode === 'Locked' ? '锁定持续记录，不自动切到离开状态。用于看视频等不操作的场景。' : '停止截图和识别，继续应用计时。用于隐私或不值得浪费 token 的事。'}</p>
+        <p>{mode === 'Locked' ? '锁定持续记录，不自动切到离开状态。用于看视频等不操作的场景。' : '按默认模式计时和判断离开，停止截图和识别；返回时恢复尚未到期的不识屏模式。'}</p>
         <label className="duration-field">持续时间（分钟）
           <input autoFocus disabled={busy} type="number" min="1" max="1440" value={minutes} onChange={e => setMinutes(e.target.value)} />
           <div className="presets">{[5, 15, 30, 60, 120].map(n => <button disabled={busy} key={n} onClick={() => setMinutes(String(n))}>{n} 分钟</button>)}</div>

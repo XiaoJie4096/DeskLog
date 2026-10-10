@@ -3,14 +3,15 @@ namespace Riji.Core;
 public enum RecordingMode { Default, Away, Locked, NoScreen }
 public sealed record AppIdentity(string Id, string Name);
 public sealed record Observation(DateTimeOffset Utc, double MonotonicSeconds, AppIdentity? App,
-    double LastInputSeconds, bool SystemBlocked = false, int ProcessId = 0, string WindowKey = "", WebsiteEvidence? Website = null, bool DesktopShown = false);
+    double LastInputSeconds, bool SystemBlocked = false, int ProcessId = 0, string WindowKey = "", WebsiteEvidence? Website = null, bool DesktopShown = false,
+    double? MediaActivitySeconds = null);
 public sealed record TrackingSettings(bool AutoRecord = true, bool AppTiming = true, int IdleSeconds = 120,
     bool DesktopAutoAway = true,
     string Theme = "dark", bool WebsiteTitles = true, bool FollowSystemTheme = true, bool StartWithWindows = true, WebsiteRule[]? WebsiteRules = null, bool WebsiteSnippets = false,
     WebsiteProject[]? WebsiteProjects = null, int HourlyMinimumMinutes = 12, string? HourlyPrompt = null,
-    bool NightMode = false, int DayStartHour = 5, bool ExtendedHours = false);
+    bool NightMode = false, int DayStartHour = 5, bool ExtendedHours = false, bool MediaAutoStay = true);
 public sealed record ModeState(RecordingMode Mode = RecordingMode.Default, DateTimeOffset? Until = null,
-    DateTimeOffset? CooldownUntil = null);
+    DateTimeOffset? CooldownUntil = null, DateTimeOffset? ResumeNoScreenUntil = null);
 public sealed record ActivitySlice(string Id, string Session, string AppId, string AppName, string Day,
     DateTimeOffset StartUtc, DateTimeOffset EndUtc, double Seconds, string? SourceAppId = null, string? SourceAppName = null);
 
@@ -18,6 +19,8 @@ public sealed record ActivitySlice(string Id, string Session, string AppId, stri
 public sealed class Tracker
 {
     private Observation? previous;
+    private double? lastMediaActivity;
+    private double? lastExplicitResume;
     private readonly string session = Guid.NewGuid().ToString("N");
     private readonly List<ActivitySlice> pending = [];
     private ActivitySlice? segment;
@@ -68,12 +71,12 @@ public sealed class Tracker
             if (elapsed is > 0 and <= 3)
             {
                 var allowed = elapsed;
-                if (State.Mode == RecordingMode.Default)
-                    allowed = Math.Min(allowed, Math.Max(0, old.LastInputSeconds + Settings.IdleSeconds - old.MonotonicSeconds));
+                if (State.Mode is RecordingMode.Default or RecordingMode.NoScreen)
+                    allowed = Math.Min(allowed, Math.Max(0, LastActivity(old) + IdleLimit(old) - old.MonotonicSeconds));
                 if (State.Mode is RecordingMode.Locked or RecordingMode.NoScreen && State.Until is { } until)
                 {
                     var toExpiry = Math.Max(0, (until - old.Utc).TotalSeconds);
-                    if (toExpiry < elapsed && old.MonotonicSeconds + toExpiry - old.LastInputSeconds >= Settings.IdleSeconds)
+                    if (toExpiry < elapsed && old.MonotonicSeconds + toExpiry - LastActivity(old) >= Settings.IdleSeconds)
                         allowed = Math.Min(allowed, toExpiry);
                 }
                 if (Settings.AutoRecord && Settings.AppTiming && State.Mode != RecordingMode.Away && !old.SystemBlocked && old.App is { } app && allowed > 0)
@@ -85,14 +88,24 @@ public sealed class Tracker
             { Health = "检测中断，未知空档未补算"; segment = null; }
         }
         if (State.Until is { } deadline && next.Utc >= deadline) State = new();
+        if (State.ResumeNoScreenUntil is { } resumeDeadline && next.Utc >= resumeDeadline)
+            State = State with { ResumeNoScreenUntil = null };
+        // Media confirms activity without fabricating input or resuming an away session.
+        if (next.SystemBlocked) lastMediaActivity = null;
+        else if (Settings.AutoRecord && Settings.MediaAutoStay && !next.DesktopShown && next.App is not null
+            && State.Mode is RecordingMode.Default or RecordingMode.NoScreen
+            && next.MediaActivitySeconds is { } media && double.IsFinite(media) && media <= next.MonotonicSeconds
+            && next.MonotonicSeconds - media <= 5)
+            lastMediaActivity = Math.Max(lastMediaActivity ?? double.NegativeInfinity, media);
         if (!next.SystemBlocked)
         {
-            var idleLimit = next.DesktopShown && Settings.DesktopAutoAway ? 5 : Settings.IdleSeconds;
-            if (State.Mode == RecordingMode.Default && next.MonotonicSeconds - next.LastInputSeconds >= idleLimit)
-                State = new(RecordingMode.Away);
+            var idleLimit = IdleLimit(next);
+            if (State.Mode is RecordingMode.Default or RecordingMode.NoScreen && next.MonotonicSeconds - LastActivity(next) >= idleLimit)
+                State = new(RecordingMode.Away, ResumeNoScreenUntil: State.Mode == RecordingMode.NoScreen ? State.Until : null);
             else if (State.Mode == RecordingMode.Away && next.LastInputSeconds > (previous?.LastInputSeconds ?? next.LastInputSeconds)
                 && (State.CooldownUntil is null || next.Utc >= State.CooldownUntil))
-                State = new();
+                State = State.ResumeNoScreenUntil is { } noScreenUntil
+                    ? new(RecordingMode.NoScreen, Until: noScreenUntil) : new();
         }
         previous = next;
     }
@@ -106,9 +119,18 @@ public sealed class Tracker
         Observe(now);
         State = new(mode, mode is RecordingMode.Locked or RecordingMode.NoScreen ? now.Utc.AddMinutes(minutes!.Value) : null,
             mode == RecordingMode.Away ? now.Utc.AddSeconds(30) : null);
-        // An explicit resume is an effective interaction even if the OS input callback is delayed.
-        if (mode == RecordingMode.Default) previous = now with { LastInputSeconds = now.MonotonicSeconds };
+        // Explicit resume starts an idle countdown without changing the real input timestamp.
+        lastMediaActivity = null;
+        lastExplicitResume = mode is RecordingMode.Default or RecordingMode.NoScreen ? now.MonotonicSeconds : null;
     }
+
+    // Desktop detection still depends on real input; media only extends the normal idle countdown.
+    private double LastActivity(Observation observation) => observation.DesktopShown && Settings.DesktopAutoAway
+        ? Math.Max(observation.LastInputSeconds, lastExplicitResume ?? double.NegativeInfinity)
+        : Math.Max(Math.Max(observation.LastInputSeconds, lastExplicitResume ?? double.NegativeInfinity), lastMediaActivity ?? double.NegativeInfinity);
+
+    // Keep the existing desktop and normal idle thresholds unchanged.
+    private int IdleLimit(Observation observation) => observation.DesktopShown && Settings.DesktopAutoAway ? 5 : Settings.IdleSeconds;
 
     public void Configure(TrackingSettings settings, Observation now)
     {
