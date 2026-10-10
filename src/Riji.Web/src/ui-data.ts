@@ -1,4 +1,4 @@
-import type { Snapshot, SummaryHeader } from './bridge';
+import type { Category, Snapshot, SummaryHeader } from './bridge';
 import { dayBounds } from './day-time.ts';
 
 // Failed replacements keep the last successful text visible.
@@ -8,12 +8,18 @@ export function selectHourlySummary(summaries: SummaryHeader[], start: number) {
   return { latest: attempts[0], saved: attempts.find(s => s.state === 'Succeeded' && s.text) };
 }
 
-// Preserve category snapshots and sample weights when classifications change.
-export function categoryTotals(records: Snapshot['recognition']['records']) {
+// Resolve the current category color by identity, falling back to the recorded color.
+export function categoryDisplayColor(category: Pick<Category, 'id' | 'color'>, categories: Category[]) {
+  return categories.find(current => current.id === category.id)?.color ?? category.color;
+}
+
+// Sum sample durations and preserve recorded names, with optional current display colors.
+export function categoryTotals(records: Snapshot['recognition']['records'], categories: Category[] = []) {
   const groups = new Map<string, { name: string; color: string; seconds: number }>();
   for (const record of records) {
-    const key = JSON.stringify([record.category.id, record.category.name, record.category.color]);
-    const group = groups.get(key) ?? { name: record.category.name, color: record.category.color, seconds: 0 };
+    const color = categoryDisplayColor(record.category, categories);
+    const key = JSON.stringify([record.category.id, record.category.name, color]);
+    const group = groups.get(key) ?? { name: record.category.name, color, seconds: 0 };
     group.seconds += record.seconds;
     groups.set(key, group);
   }

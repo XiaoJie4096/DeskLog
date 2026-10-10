@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { categoryTotals, previewRange, selectHourlySummary } from '../src/Riji.Web/src/ui-data.ts';
+import { categoryDisplayColor, categoryTotals, previewRange, selectHourlySummary } from '../src/Riji.Web/src/ui-data.ts';
 import { activityTime, dayBounds } from '../src/Riji.Web/src/day-time.ts';
 
 const sample = (minute, seconds, name = '开发', color = '#ddb777') => ({
@@ -31,6 +31,30 @@ test('category pie preserves historical labels and weights rather than sample co
     { name: '开发', color: '#ffffff', seconds: 60 }
   ]);
   assert.deepEqual(categoryTotals([]), []);
+});
+test('review categories use current colors and sort accumulated durations rather than first appearance', () => {
+  const records = [
+    { ...sample(0, 60, '旧学习名称', '#111111'), category: { id: 'learning', name: '旧学习名称', color: '#111111' } },
+    { ...sample(1, 180), category: { id: 'development', name: '开发', color: '#222222' } },
+    { ...sample(2, 120), category: { id: 'development', name: '开发', color: '#333333' } }
+  ];
+  const categories = [
+    { id: 'learning', name: '学习', color: '#91a58e', enabled: false },
+    { id: 'development', name: '开发', color: '#ddb777', enabled: true }
+  ];
+  const before = structuredClone(records);
+  assert.deepEqual(categoryTotals(records, categories), [
+    { name: '开发', color: '#ddb777', seconds: 300 },
+    { name: '旧学习名称', color: '#91a58e', seconds: 60 }
+  ]);
+  assert.equal(categoryDisplayColor(records[0].category, categories), '#91a58e');
+  assert.deepEqual(records, before);
+});
+test('review color falls back to the saved color when the category no longer exists', () => {
+  const record = sample(0, 60, '旧分类', '#abcdef');
+  const categories = [{ id: 'replacement', name: '旧分类', color: '#123456' }];
+  assert.equal(categoryDisplayColor(record.category, categories), '#abcdef');
+  assert.deepEqual(categoryTotals([record], categories), [{ name: '旧分类', color: '#abcdef', seconds: 60 }]);
 });
 test('range preview combines full day recognition weights without application duration', () => {
   assert.deepEqual(previewRange(state, '2026-09-11T00:00', '2026-09-13T00:00'), { count: 7, seconds: 960 });

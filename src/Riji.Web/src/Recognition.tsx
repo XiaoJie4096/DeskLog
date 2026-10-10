@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { command, type Snapshot, type JobPage } from './bridge';
 import './recognition.css';
 import { SummaryText } from './SummaryText';
-import { selectHourlySummary } from './ui-data';
+import { categoryDisplayColor, categoryTotals, selectHourlySummary } from './ui-data';
 import { groupSamplesByHour, sampleGaps } from './record-gaps';
 import { activityTime, dayBounds } from './day-time';
 
@@ -41,6 +41,7 @@ export function RecognitionJobs() {
   </details>;
 }
 
+// Render hourly review categories by duration using the current configured colors.
 export function RecognitionTimeline({ state }: { state: Snapshot }) {
   const records = state.recognition.records;
   const [hour, setHour] = useState('all');
@@ -72,6 +73,7 @@ export function RecognitionTimeline({ state }: { state: Snapshot }) {
       const start = group.start;
       const { latest, saved } = selectHourlySummary(state.summaries, start);
       const generating = busy === start || latest?.state === 'Running';
+      const categories = categoryTotals(group.records, state.recognition.categories);
       return <section className="hour-group" key={start}>
         <div className="section-head hour-heading"><h3>{activityTime(start, state.day, state.settings)} — {activityTime(start + 3600000, state.day, state.settings)}</h3><span>{Math.round(group.seconds / 60)} 分钟 · {group.records.length} 次识别</span><button disabled={busy !== null || !state.recognition.configured} onClick={() => void summarize(start)}>{generating ? '正在生成…' : '生成时段摘要'}</button></div>
         {saved?.text ? <div className="hour-overview"><SummaryText text={saved.text} /></div> : <p className="hour-placeholder">{generating ? '正在整理本时段的活动记录…' : '暂无时段摘要，点击“生成时段摘要”开始整理。'}</p>}
@@ -79,8 +81,8 @@ export function RecognitionTimeline({ state }: { state: Snapshot }) {
         {generating && latest && <button onClick={() => void command('summaryCancel', { summaryId: latest.id }).catch(error => setError(error.message))}>取消生成</button>}
         {latest && (latest.state === 'Failed' || latest.state === 'Cancelled') && <p role="alert">{latest.automatic ? '自动摘要' : '时段摘要'}{latest.state === 'Cancelled' ? '已取消' : '生成失败'}：{latest.error}{saved ? '。仍显示上次成功生成的摘要。' : ''} <button disabled={busy !== null || !state.recognition.configured} onClick={() => void summarize(start, latest.id)}>重试摘要</button></p>}
         {!state.recognition.configured && <small>请先在设置中验证 AI 服务。</small>}
-        <div className="hour-categories">{Array.from(group.records.reduce((map, record) => { const key = record.category.name; map.set(key, (map.get(key) ?? 0) + record.seconds); return map; }, new Map<string, number>())).map(([name, seconds]) => <span key={name}>{name} · {Math.round(seconds / 60)} 分钟</span>)}{saved && <small className="hour-generated">{saved.automatic ? '整点自动生成' : '手动生成'} · {new Date(saved.created).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false })}</small>}</div>
-        <details className="hour-records"><summary>展开 {group.records.length} 条原始记录</summary><ol className="recognition-timeline">{[...group.records].reverse().map(record => <li key={record.id}><time>{activityTime(record.utc, state.day, state.settings)}</time><div>{gaps.has(record.id) && <p className="sample-gap">记录缺口：{activityTime(gaps.get(record.id)!.start, state.day, state.settings)} 至 {activityTime(record.utc, state.day, state.settings)}，两次采样相隔 {Math.round(gaps.get(record.id)!.elapsedSeconds / 60)} 分钟。之间未保存其他成功采样。</p>}<span className="category-label" style={{ borderColor: record.category.color }}>{record.category.name}</span><p>{record.description}</p></div></li>)}</ol></details>
+        <div className="hour-categories">{categories.map((category, index) => <span key={index} style={{ color: category.color, backgroundColor: `color-mix(in srgb, ${category.color} 12%, var(--surface))` }}>{category.name} · {Math.round(category.seconds / 60)} 分钟</span>)}{saved && <small className="hour-generated">{saved.automatic ? '整点自动生成' : '手动生成'} · {new Date(saved.created).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false })}</small>}</div>
+        <details className="hour-records"><summary>展开 {group.records.length} 条原始记录</summary><ol className="recognition-timeline">{[...group.records].reverse().map(record => <li key={record.id}><time>{activityTime(record.utc, state.day, state.settings)}</time><div>{gaps.has(record.id) && <p className="sample-gap">记录缺口：{activityTime(gaps.get(record.id)!.start, state.day, state.settings)} 至 {activityTime(record.utc, state.day, state.settings)}，两次采样相隔 {Math.round(gaps.get(record.id)!.elapsedSeconds / 60)} 分钟。之间未保存其他成功采样。</p>}<span className="category-label" style={{ borderColor: categoryDisplayColor(record.category, state.recognition.categories) }}>{record.category.name}</span><p>{record.description}</p></div></li>)}</ol></details>
       </section>;
     }) : <div className="empty">这段时间没有成功识别记录。<small>空白不代表没有活动，日迹不会补写未知内容。</small></div>}
   </section>;
