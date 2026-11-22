@@ -9,7 +9,8 @@ public sealed record TrackingSettings(bool AutoRecord = true, bool AppTiming = t
     bool DesktopAutoAway = true,
     string Theme = "dark", bool WebsiteTitles = true, bool FollowSystemTheme = true, bool StartWithWindows = true, WebsiteRule[]? WebsiteRules = null, bool WebsiteSnippets = false,
     WebsiteProject[]? WebsiteProjects = null, int HourlyMinimumMinutes = 12, string? HourlyPrompt = null,
-    bool NightMode = false, int DayStartHour = 5, bool ExtendedHours = false, bool MediaAutoStay = true);
+    bool NightMode = false, int DayStartHour = 5, bool ExtendedHours = false, bool MediaAutoStay = true,
+    bool CategoryReviewEnabled = true, int CategoryReviewMinute = 22 * 60);
 public sealed record ModeState(RecordingMode Mode = RecordingMode.Default, DateTimeOffset? Until = null,
     DateTimeOffset? CooldownUntil = null, DateTimeOffset? ResumeNoScreenUntil = null);
 public sealed record ActivitySlice(string Id, string Session, string AppId, string AppName, string Day,
@@ -56,6 +57,8 @@ public sealed class Tracker
             throw new ArgumentException("自动摘要门槛应为 1–60 分钟，提示词不能为空且最多 10000 字。");
         if (value.IdleSeconds is < 30 or > 3600 || value.Theme is not ("dark" or "light"))
             throw new ArgumentException("空闲时间应为 1–3600 秒，主题应为深色或浅色。");
+        if (value.CategoryReviewMinute is < 0 or >= 24 * 60)
+            throw new ArgumentException("分类回顾时间应为 00:00–23:59。");
         if (value.DayStartHour is < 1 or > 9)
             throw new ArgumentException("新一天的起点应为 01:00–09:00 的整点。");
     }

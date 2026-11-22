@@ -4,18 +4,20 @@ using Riji.Core;
 namespace Riji.Infrastructure;
 
 public sealed record SummaryListEntry(string Id, SummaryRange Range, DateTimeOffset Created, GenerationState State, string? Error, int SourceCount, int CompletedBatches, bool Hourly = false, bool Automatic = false, string? Text = null,
-    DateTimeOffset? RetryAt = null, bool WaitForConnection = false, DateTimeOffset? ChatRetryAt = null, bool ChatWaitForConnection = false);
+    DateTimeOffset? RetryAt = null, bool WaitForConnection = false, DateTimeOffset? ChatRetryAt = null, bool ChatWaitForConnection = false,
+    CategoryReviewInfo? CategoryReview = null);
 
 public sealed partial class LocalStore
 {
+    // Include inline text for summaries shown directly in the review page.
     private static SummaryListEntry Header(SummaryDocument summary)
     {
         var chat = summary.Conversation?.LastOrDefault();
         return new(summary.Id, summary.Range, summary.Created, summary.State, summary.Error, summary.Sources.Length,
             summary.Calls?.Count(call => call.Result is not null) ?? 0, summary.Hourly, summary.Automatic,
-            summary.Hourly ? summary.Text : null, summary.RetryAt, summary.WaitForConnection,
+            (summary.Hourly || summary.CategoryReview is not null) ? summary.Text : null, summary.RetryAt, summary.WaitForConnection,
             chat?.State == GenerationState.Failed ? chat.RetryAt : null,
-            chat?.State == GenerationState.Failed && chat.WaitForConnection);
+            chat?.State == GenerationState.Failed && chat.WaitForConnection, summary.CategoryReview);
     }
 
     private void InitializeSummaries()

@@ -49,6 +49,7 @@ public sealed class MainWindow : Window
     private RecognitionPipeline recognition = null!;
     private SummaryService summaries = null!;
     private HourlySummaryService hourlySummaries = null!;
+    private CategoryReviewService categoryReviews = null!;
     private readonly JsonSerializerOptions json = new(JsonSerializerDefaults.Web) { Converters = { new JsonStringEnumConverter() } };
     private bool exiting;
     private bool maintenance;
@@ -199,8 +200,12 @@ public sealed class MainWindow : Window
             () => !maintenance && !exiting && tracker.Settings.AutoRecord && tracker.State.Mode is RecordingMode.Default or RecordingMode.Locked && !observer.Capture().SystemBlocked,
             SecretVault.Protect, SecretVault.Unprotect, Capture);
         summaries = new(store, new HttpAiClient(aiHttp), () => (recognition.Configuration ?? throw new InvalidOperationException("请先在设置中验证 AI 配置。"), recognition.ActiveKey()), diagnosticLog);
-        hourlySummaries = new(store, summaries, TimeZoneInfo.Local, DateTimeOffset.UtcNow, () => !maintenance && !exiting && !offlineReview && profile != "Test" && recognition.Configuration is not null);
+        hourlySummaries = new(store, summaries, TimeZoneInfo.Local, DateTimeOffset.UtcNow, CanRunAutomaticSummary);
+        categoryReviews = new(store, summaries, CanRunAutomaticSummary);
     }
+
+    // Check whether background summary requests may use the configured provider.
+    private bool CanRunAutomaticSummary() => !maintenance && !exiting && !offlineReview && profile != "Test" && recognition.Configuration is not null;
 
     private void OnForeground() { if (!exiting && !maintenance) Dispatcher.BeginInvoke(() => { if (!exiting && !maintenance) tracker.Observe(Capture()); }); }
 
@@ -216,6 +221,7 @@ public sealed class MainWindow : Window
             UpdateTrayStatus();
             _ = recognition.Pulse(DateTimeOffset.UtcNow);
             _ = hourlySummaries.Pulse(DateTimeOffset.UtcNow);
+            categoryReviews.Pulse(DateTimeOffset.UtcNow, tracker.Settings, TimeZoneInfo.Local);
             _ = summaries.Pulse(DateTimeOffset.UtcNow);
             if (systemTest)
             {
@@ -305,6 +311,9 @@ public sealed class MainWindow : Window
                     store.SaveValue("summary-form", form); break;
                 case "hourSummaryGenerate":
                     value = hourlySummaries.QueueGenerate(root.GetProperty("start").GetDateTimeOffset()); Push(); break;
+                case "categoryReviewGenerate":
+                    value = categoryReviews.QueueGenerate(root.GetProperty("day").GetString()!, root.GetProperty("categoryId").GetString()!,
+                        DateTimeOffset.UtcNow, tracker.Settings, TimeZoneInfo.Local); Push(); break;
                 case "summaryGenerate":
                     value = summaries.QueueGenerate(new(root.GetProperty("start").GetDateTimeOffset(), root.GetProperty("end").GetDateTimeOffset(), TimeZoneInfo.Local.Id), root.GetProperty("prompt").GetString()!);
                     Push(); break;
@@ -377,6 +386,7 @@ public sealed class MainWindow : Window
             var today = DayRange.Today(DateTimeOffset.Now, tracker.Settings, TimeZoneInfo.Local);
             var view = store.ViewDay(selectedDay, tracker.Settings, TimeZoneInfo.Local);
             var browserNow = observer.Capture().MonotonicSeconds;
+            var summaryHeaders = store.SummaryHeaders();
             Send(new { type = "snapshot", day = selectedDay, today,
                 settings = tracker.Settings, mode = tracker.State, currentApp = tracker.CurrentApp?.Name,
                 dataStatus, maintenance, diagnosticLogFailed = diagnosticLog.WriteFailed,
@@ -390,7 +400,9 @@ public sealed class MainWindow : Window
                 hourlyDefaultPrompt = HourlySummaryService.Prompt,
                 hourlySummaryError = hourlySummaries.Error, summaryBusy = summaries.Busy, summaryForm = store.Read<SummaryForm>("summary-form"),
                 summaryPresets = store.Read<PromptPreset[]>("summary-presets") ?? PromptPreset.Defaults,
-                summaries = store.SummaryHeaders(),
+                summaries = summaryHeaders.Where(item => item.CategoryReview is null),
+                categoryReviews = summaryHeaders.Where(item => item.CategoryReview?.Day == selectedDay),
+                categoryReviewError = categoryReviews.Error,
                 days = store.Days(tracker.Settings, TimeZoneInfo.Local), profile, dataPath = store.Path, appVersion, savedAt = DateTimeOffset.UtcNow,
                 recording = tracker.IsTimingActive, timingStatus = tracker.TimingStatus });
             UpdateTrayStatus();

@@ -76,6 +76,19 @@ public sealed class SummaryService
         return summary.Id;
     }
 
+    // Save the category's exact evidence before starting or retrying any AI request.
+    public string QueueCategoryReview(SummaryRange range, string prompt, ActivityRecord[] sources, CategoryReviewInfo review)
+    {
+        Available();
+        var (config, key) = SummaryConfiguration();
+        var now = DateTimeOffset.UtcNow;
+        var summary = new SummaryDocument(Guid.NewGuid().ToString("N"), range, now, now, prompt, sources,
+            Snapshot(config), Automatic: review.Stage != CategoryReviewStage.Manual, CategoryReview: review);
+        lock (store) store.SaveSummary(summary);
+        _ = Run(summary, config, key);
+        return summary.Id;
+    }
+
     private (SummaryDocument Summary, AiConfiguration Config, string Key) Create(SummaryRange range, string prompt, bool hourly, bool automatic)
     {
         Available();
@@ -116,10 +129,14 @@ public sealed class SummaryService
             && (summary.RetryAt <= now || summary.WaitForConnection)).ToList();
         (AiConfiguration Config, string Key) current;
         try { current = SummaryConfiguration(); } catch (InvalidOperationException) { return; }
+        bool categoryReviewEnabled = true;
+        if (due.Any(header => header.Automatic && header.CategoryReview is not null))
+            lock (store) categoryReviewEnabled = (store.Read<TrackingSettings>("settings") ?? new()).CategoryReviewEnabled;
         bool? reachable = null;
         foreach (var header in due)
         {
             if (closing) return;
+            if (!categoryReviewEnabled && header.Automatic && header.CategoryReview is not null) continue;
             lock (gate) if (active.ContainsKey(header.Id) || unsaved.ContainsKey(header.Id)) continue;
             SummaryDocument summary;
             lock (store) summary = store.Summary(header.Id);
@@ -217,7 +234,7 @@ public sealed class SummaryService
                     evidence, budget, grounding: "");
                 var finalStage = prompts.Length == 1;
                 // Versioned routing preserves retries of documents created with the earlier prompt plan.
-                if (summary.Hourly && summary.PromptVersion >= 1)
+                if ((summary.Hourly && summary.PromptVersion >= 1) || summary.CategoryReview is not null)
                 {
                     var finalPrompts = SummaryPrompts.Batches(summary.Prompt, evidence, budget, grounding: "");
                     finalStage = finalPrompts.Length == 1;

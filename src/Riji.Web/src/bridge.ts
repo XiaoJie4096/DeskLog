@@ -1,12 +1,13 @@
 export type Mode = 'Default' | 'Away' | 'Locked' | 'NoScreen';
-export type Settings = { hourlyMinimumMinutes: number; hourlyPrompt?: string | null; autoRecord: boolean; appTiming: boolean; idleSeconds: number; desktopAutoAway: boolean; mediaAutoStay: boolean; theme: 'dark' | 'light'; websiteTitles: boolean; followSystemTheme: boolean; startWithWindows: boolean; websiteSnippets: boolean; websiteProjects?: { id: string; name: string; domains: string[] }[] | null; websiteRules?: { domain: string; allow: boolean }[] | null; nightMode: boolean; dayStartHour: number; extendedHours: boolean };
+export type Settings = { categoryReviewEnabled: boolean; categoryReviewMinute: number; hourlyMinimumMinutes: number; hourlyPrompt?: string | null; autoRecord: boolean; appTiming: boolean; idleSeconds: number; desktopAutoAway: boolean; mediaAutoStay: boolean; theme: 'dark' | 'light'; websiteTitles: boolean; followSystemTheme: boolean; startWithWindows: boolean; websiteSnippets: boolean; websiteProjects?: { id: string; name: string; domains: string[] }[] | null; websiteRules?: { domain: string; allow: boolean }[] | null; nightMode: boolean; dayStartHour: number; extendedHours: boolean };
 export type Category = { id: string; name: string; meaning: string; color: string; enabled: boolean };
 export type CaptureSettings = { enabled: boolean; intervalSeconds: number; keepImages: boolean; maxAttempts: number; prompt?: string | null };
 export type GenerationState = 'Running' | 'Succeeded' | 'Failed' | 'Cancelled';
 export type SummaryForm = { start: string; end: string; prompt: string };
 export type PromptPreset = { id: string; name: string; prompt: string };
 export type JobPage = { total: number; items: { id: string; utc: string; status: string; attempts: number; retryAt: string | null; error: string | null; cleanupPending: boolean; waitForConnection: boolean }[] };
-export type SummaryHeader = { id: string; range: { start: string; end: string; zoneId: string }; created: string; state: GenerationState; error: string | null; sourceCount: number; completedBatches: number; hourly?: boolean; automatic?: boolean; text?: string | null };
+export type CategoryReviewInfo = { day: string; categoryId: string; stage: 'Manual' | 'Scheduled' | 'Final' };
+export type SummaryHeader = { id: string; range: { start: string; end: string; zoneId: string }; created: string; state: GenerationState; error: string | null; sourceCount: number; completedBatches: number; hourly?: boolean; automatic?: boolean; text?: string | null; categoryReview?: CategoryReviewInfo | null };
 export type SummaryDocument = Omit<SummaryHeader, 'sourceCount' | 'completedBatches'> & { dataCutoff: string; prompt: string; text: string | null; chatDraft: string;
   sources: { id: string; utc: string; seconds: number; description: string; category: Category }[];
   calls: { id: string; prompt: string; result: string | null }[] | null;
@@ -20,6 +21,7 @@ export type Snapshot = {
   browserConnections: number; connectedBrowsers: ('chrome' | 'msedge' | 'firefox')[]; browserError: string | null;
   browserExtensionPaths: { chromeEdge: string; firefox: string };
   hourlyDefaultPrompt: string; hourlySummaryError?: string | null; summaryBusy: boolean; summaryForm: SummaryForm | null; summaryPresets: PromptPreset[]; summaries: SummaryHeader[];
+  categoryReviews: SummaryHeader[]; categoryReviewError?: string | null;
   maintenance: boolean; dataStatus: string | null; diagnosticLogFailed: boolean;
   recognition: { settings: CaptureSettings; defaultPrompt: string; categories: Category[]; busy: boolean; paused: boolean; error: string | null;
     configured: boolean; endpoint: string | null; model: string | null; summaryModel: string | null; latestSample: string | null; jobs: { status: string; count: number }[];

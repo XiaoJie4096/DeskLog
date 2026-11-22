@@ -9,6 +9,7 @@ import { DesignIcon } from './DesignIcon';
 import { ModeHelp } from './ModeHelp';
 import './design-restoration.css';
 import { SettingsPanel } from './SettingsPanel';
+import { CategoryReviews } from './CategoryReviews';
 
 const pages = [['home', '今天', '◷'], ['review', '回顾', '▤'], ['summaries', 'AI 总结', '✧'], ['statistics', '应用统计', '▥'], ['settings', '设置', '⚙']] as const;
 const modes: Record<Mode, string> = { Default: '默认', Away: '离开', Locked: '锁定', NoScreen: '不识屏' };
@@ -109,7 +110,10 @@ function App() {
           {reviewTab === tab && (reviewState ? (tab === 'timeline' ? <>
             <section className="review-summary"><div><small>成功识别累计</small><strong>{formatTime(reviewState.recognition.records.reduce((n, r) => n + r.seconds, 0))}</strong></div><div><small>成功识别</small><strong>{reviewState.recognition.records.length} 次</strong></div><div><small>待重试任务（所有日期）</small><strong>{reviewState.recognition.jobs.filter(j => j.status === 'Retry' || j.status === 'Manual').reduce((n, j) => n + j.count, 0)} 个</strong></div></section>
             <RecognitionTimeline state={reviewState} />
-          </> : <CategoryDistribution records={reviewState.recognition.records} variant="review" />)
+          </> : <>
+            <CategoryDistribution records={reviewState.recognition.records} variant="review" />
+            <CategoryReviews key={reviewState.day} state={reviewState} busy={busy} run={run} />
+          </>)
             : <p className="empty" role="status">{error ? '暂时无法加载这一天的记录。' : '正在加载这一天的记录…'}</p>)}
         </div>)}
       </>}

@@ -3,6 +3,8 @@ using System.Text;
 namespace Riji.Core;
 
 public enum GenerationState { Running, Succeeded, Failed, Cancelled }
+public enum CategoryReviewStage { Manual, Scheduled, Final }
+public sealed record CategoryReviewInfo(string Day, string CategoryId, CategoryReviewStage Stage);
 public sealed record SummaryForm(string Start, string End, string Prompt);
 public sealed record SummaryRange(DateTimeOffset Start, DateTimeOffset End, string ZoneId)
 {
@@ -21,7 +23,8 @@ public sealed record SummaryDocument(string Id, SummaryRange Range, DateTimeOffs
     string Prompt, ActivityRecord[] Sources, ModelSnapshot Model, GenerationState State = GenerationState.Running,
     string? Text = null, string? Error = null, GenerationCall[]? Calls = null, ChatTurn[]? Conversation = null, string ChatDraft = "",
     bool Hourly = false, bool Automatic = false, int PromptVersion = 0,
-    int Attempts = 0, DateTimeOffset? FirstFailureAt = null, DateTimeOffset? RetryAt = null, bool WaitForConnection = false);
+    int Attempts = 0, DateTimeOffset? FirstFailureAt = null, DateTimeOffset? RetryAt = null, bool WaitForConnection = false,
+    CategoryReviewInfo? CategoryReview = null);
 public sealed record PromptPreset(string Id, string Name, string Prompt)
 {
     public static PromptPreset[] Defaults => [

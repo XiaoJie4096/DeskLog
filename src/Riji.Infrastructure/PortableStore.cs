@@ -42,7 +42,7 @@ public sealed partial class LocalStore
         using (var clear = connection.CreateCommand())
         {
             clear.Transaction = transaction;
-            clear.CommandText = "DELETE FROM summary_headers; DELETE FROM summaries; DELETE FROM records; DELETE FROM recognition_jobs; DELETE FROM websites; DELETE FROM activity; DELETE FROM metadata WHERE key IN ('summary-form','summary-draft','hourly-summary-cursor');";
+            clear.CommandText = "DELETE FROM summary_headers; DELETE FROM summaries; DELETE FROM records; DELETE FROM recognition_jobs; DELETE FROM websites; DELETE FROM activity; DELETE FROM metadata WHERE key IN ('summary-form','summary-draft','hourly-summary-cursor','category-review-cursor');";
             clear.ExecuteNonQuery();
         }
         void Insert(string sql, params (string Name, object? Value)[] values)
@@ -62,7 +62,7 @@ public sealed partial class LocalStore
         foreach (var item in data.Summaries)
         {
             Insert("INSERT INTO summaries VALUES($id,$created,$payload)", ("$id", item.Id), ("$created", item.Created.ToString("O")), ("$payload", JsonSerializer.Serialize(item)));
-            var header = new SummaryListEntry(item.Id, item.Range, item.Created, item.State, item.Error, item.Sources.Length, item.Calls?.Count(call => call.Result is not null) ?? 0, item.Hourly, item.Automatic, item.Hourly ? item.Text : null);
+            var header = Header(item);
             Insert("INSERT INTO summary_headers VALUES($id,$created,$payload)", ("$id", item.Id), ("$created", item.Created.ToString("O")), ("$payload", JsonSerializer.Serialize(header)));
         }
         Put("settings", data.Settings with { AutoRecord = false }, transaction); Put("mode", new ModeState(), transaction);

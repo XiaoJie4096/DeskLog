@@ -153,3 +153,15 @@
   .review-distribution .pie { max-width: 180px; justify-self: center; }
   .review-distribution .legend { justify-self: center; }
 }
+
+.category-reviews { margin-top: 16px; }
+.category-reviews h2 { margin: 0 0 10px; }
+.category-review + .category-review { border-top: 1px solid var(--line); }
+.category-review summary { cursor: pointer; padding: 11px 0; }
+.category-review summary strong { margin-left: 8px; }
+.category-review summary small { display: inline-block; margin-left: 12px; font-variant-numeric: tabular-nums; }
+.category-review-dot { display: inline-block; vertical-align: 1px; width: 8px; height: 8px; border-radius: 50%; margin-left: 6px; }
+.category-review-body { padding: 0 0 12px 28px; max-width: 70ch; }
+.category-review-body .summary-text { margin: 4px 0 10px; font-size: 14px; line-height: 1.75; }
+.category-review-status { margin: 0 0 8px; }
+.category-review-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }

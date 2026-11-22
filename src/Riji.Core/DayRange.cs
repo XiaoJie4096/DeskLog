@@ -19,6 +19,15 @@ public static class DayRange
             Boundary(date.AddDays(1).ToDateTime(new TimeOnly(hour, 0)), zone));
     }
 
+    // Place a wall-clock time within a review day, including its after-midnight hours.
+    public static DateTimeOffset ScheduledTime(string day, TrackingSettings settings, TimeZoneInfo zone, int minute)
+    {
+        var startHour = settings.NightMode ? settings.DayStartHour : 0;
+        var date = DateOnly.ParseExact(day, "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
+        if (minute <= startHour * 60) date = date.AddDays(1);
+        return Boundary(date.ToDateTime(new TimeOnly(minute / 60, minute % 60)), zone);
+    }
+
     private static DateTimeOffset Boundary(DateTime local, TimeZoneInfo zone)
     {
         while (zone.IsInvalidTime(local)) local = local.AddMinutes(1);

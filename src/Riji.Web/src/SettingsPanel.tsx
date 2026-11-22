@@ -148,13 +148,22 @@ function AiProviderSettings({ state, busy, run }: { state: Snapshot; busy: boole
   </Section>;
 }
 
+// Format a minute of the local day for the native time input.
+function formatReviewTime(minute: number) {
+  return [Math.floor(minute / 60), minute % 60].map(value => String(value).padStart(2, '0')).join(':');
+}
+
+// Configure categories and automatic reviews from their shared settings tab.
 function ReviewSettings({ state, busy, run }: { state: Snapshot; busy: boolean; run: Props['run'] }) {
   const [categories, setCategories] = useState<Category[]>(state.recognition.categories);
   const [minutes, setMinutes] = useState(String(state.settings.hourlyMinimumMinutes));
   const [prompt, setPrompt] = useState(state.settings.hourlyPrompt ?? state.hourlyDefaultPrompt);
   const [promptOpen, setPromptOpen] = useState(false);
+  const categoryReviewMinute = state.settings.categoryReviewMinute ?? 22 * 60;
+  const [reviewTime, setReviewTime] = useState(formatReviewTime(categoryReviewMinute));
   const categorySource = JSON.stringify(state.recognition.categories);
   useEffect(() => setCategories(state.recognition.categories), [categorySource]);
+  useEffect(() => setReviewTime(formatReviewTime(categoryReviewMinute)), [categoryReviewMinute]);
   useEffect(() => setMinutes(String(state.settings.hourlyMinimumMinutes)), [state.settings.hourlyMinimumMinutes]);
   useEffect(() => setPrompt(state.settings.hourlyPrompt ?? state.hourlyDefaultPrompt), [state.settings.hourlyPrompt, state.hourlyDefaultPrompt]);
   const updateCategory = (index: number, patch: Partial<Category>) => setCategories(items => items.map((item, current) => current === index ? { ...item, ...patch } : item));
@@ -166,6 +175,19 @@ function ReviewSettings({ state, busy, run }: { state: Snapshot; busy: boolean; 
   return <>
     <Section title="活动分类" meta={<span className="settings-count">{categories.filter(category => category.enabled).length} / 12</span>}><div className="category-editor-list">{categories.map((category, index) => <div className="category-edit" key={category.id}><Switch label={`启用 ${category.name}`} checked={category.enabled} disabled={busy} onChange={value => updateCategory(index, { enabled: value })} /><input aria-label="分类颜色" type="color" value={category.color} onChange={event => updateCategory(index, { color: event.target.value })} /><input aria-label="分类名称" maxLength={10} value={category.name} onChange={event => updateCategory(index, { name: event.target.value })} /><input aria-label="分类描述" maxLength={80} value={category.meaning} onChange={event => updateCategory(index, { meaning: event.target.value })} /><button aria-label={`删除分类 ${category.name}`} disabled={busy} onClick={() => setCategories(items => items.filter((_, current) => current !== index))}>删除</button></div>)}</div><div className="settings-actions"><button disabled={busy || categories.length >= 100} onClick={() => setCategories(items => [...items, { id: crypto.randomUUID(), name: '', meaning: '', color: '#ddb777', enabled: true }])}>添加分类</button><button className="primary" disabled={busy || categories.length === 0} onClick={() => void run('categories', { categories }, '分类已保存。')}>保存分类</button></div></Section>
     <Section title="时段摘要"><label className="settings-field">自动摘要最低记录时长<input type="number" min="1" max="60" value={minutes} disabled={busy} onChange={event => setMinutes(event.target.value)} /><small>成功识别记录累计达到门槛后，在整点自动生成；手动生成和失败重试不受限制。</small></label><SettingRow label="时段摘要提示词" help="新摘要使用修改后的提示词；历史摘要不变。"><button className="settings-link" disabled={busy} onClick={() => setPromptOpen(true)}>编辑提示词 ›</button></SettingRow><div className="settings-actions"><button className="primary" disabled={busy} onClick={() => void run('settings', { settings: { ...state.settings, hourlyMinimumMinutes: Number(minutes), hourlyPrompt: prompt } }, '摘要设置已保存。')}>保存摘要设置</button></div></Section>
+    <Section title="分类回顾">
+      <SettingRow label="自动分类回顾" help="到点及当天结束时，成功识别累计满 30 分钟的分类会自动生成。也可以在回顾页手动生成。">
+        <Switch label="自动分类回顾" checked={state.settings.categoryReviewEnabled ?? true} disabled={busy}
+          onChange={categoryReviewEnabled => void run('settings', { settings: { ...state.settings, categoryReviewEnabled } }, '分类回顾设置已保存。')} />
+      </SettingRow>
+      <SettingRow label="每日生成时间" help="使用本地时间。当天结束按回顾页的日期分界计算。">
+        <input aria-label="每日分类回顾时间" type="time" value={reviewTime} disabled={busy} onChange={event => setReviewTime(event.target.value)} />
+        <button disabled={busy || !reviewTime || reviewTime === formatReviewTime(categoryReviewMinute)} onClick={() => {
+          const [hour, minute] = reviewTime.split(':').map(Number);
+          void run('settings', { settings: { ...state.settings, categoryReviewMinute: hour * 60 + minute } }, '分类回顾时间已保存。');
+        }}>保存时间</button>
+      </SettingRow>
+    </Section>
     <PromptModal open={promptOpen} title="时段摘要提示词" description="设置回顾页手动和整点自动摘要使用的提示词；已有摘要不变。" value={prompt} defaultValue={state.hourlyDefaultPrompt} busy={busy} onClose={() => setPromptOpen(false)} onSave={savePrompt} />
   </>;
 }
