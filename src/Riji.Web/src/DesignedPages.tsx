@@ -10,16 +10,54 @@ export const formatTime = (seconds: number) => {
   return hours ? `${hours} 时${minutes ? ` ${minutes} 分` : ''}` : `${minutes} 分`;
 };
 
-export function TodayOverview({ state, review }: { state: Snapshot; review: () => void }) {
+// Show the same sampled category totals on the home and review pages.
+export function CategoryDistribution({ records, variant, onViewHistory }: {
+  records: Snapshot['recognition']['records'];
+  variant: 'home' | 'review';
+  onViewHistory?: () => void;
+}) {
+  const groups = categoryTotals(records).filter(group => group.seconds > 0);
+  const total = groups.reduce((sum, group) => sum + group.seconds, 0);
+  const isReview = variant === 'review';
+  let elapsed = 0;
+  const slices = groups.map(group => {
+    const start = elapsed / total * 100;
+    elapsed += group.seconds;
+    return `${group.color} ${start}% ${elapsed / total * 100}%`;
+  });
+
+  return <section className={`panel distribution-panel${isReview ? ' review-distribution' : ''}`}>
+    <div className="section-head">
+      <h2>时间，花在哪里</h2>
+      {onViewHistory && <button onClick={onViewHistory}>查看历史 ↗</button>}
+    </div>
+    {total > 0 ? <>
+      <div className="distribution">
+        <div className="pie" style={{ background: `conic-gradient(${slices.join(',')})` }}>
+          {isReview && <div className="distribution-total"><strong>{formatTime(total)}</strong><small>成功识别累计</small></div>}
+        </div>
+        <ul className="legend" aria-label="分类时长与占比">
+          {groups.map((group, index) => <li key={index}>
+            <i aria-hidden="true" style={{ background: group.color }} />
+            <span>{group.name}</span>
+            <b>{formatTime(group.seconds)} · {(group.seconds / total * 100).toFixed(1)}%</b>
+          </li>)}
+        </ul>
+      </div>
+      {isReview && <p className="sampling-caption">占比按当天成功识别的累计时长计算，未记录的时间不计入。</p>}
+    </> : <p className="empty">{isReview ? '这一天没有成功识别记录。' : '暂无成功识别记录'}</p>}
+    {!isReview && <div className="ornament">❋ <small>SMALL MOMENTS, YOUR DAY.</small></div>}
+  </section>;
+}
+
+// Show today's totals, category distribution, and most recent samples.
+export function TodayOverview({ state, review, viewHistory }: { state: Snapshot; review: () => void; viewHistory: () => void }) {
   const records = [...state.recognition.records].sort((a, b) => a.utc.localeCompare(b.utc));
   const total = records.reduce((sum, r) => sum + r.seconds, 0);
-  const groups = categoryTotals(records);
   const clock = (utc: string) => activityTime(utc, state.day, state.settings);
-  let offset = 0;
-  const slices = groups.map(g => { const start = offset; offset += g.seconds / total * 100; return `${g.color} ${start}% ${offset}%`; });
   return <div className="home-grid original-home">
     <section className="panel duration-panel"><p>今天成功识别累计</p><div className="big-time">{Math.floor(total / 3600)}<small>小时</small>{Math.floor(total % 3600 / 60)}<small>分钟</small></div><div className="micro"><div><small>首次记录</small><strong>{records.length ? clock(records[0].utc) : '—'}</strong></div><div><small>最近记录</small><strong>{records.length ? clock(records[records.length - 1].utc) : '—'}</strong></div><div><small>成功识别</small><strong>{records.length} 次</strong></div></div><small className="sampling-caption">按成功采样间隔累计，不等同于前台应用时长。</small></section>
-    <section className="panel distribution-panel"><div className="section-head"><h2>时间，花在哪里</h2><span>↗</span></div>{total > 0 ? <div className="distribution"><div className="pie" role="img" aria-label={groups.map(g => `${g.name} ${(g.seconds / total * 100).toFixed(1)}%`).join('，')} style={{ background: `conic-gradient(${slices.join(',')})` }} /><div className="legend">{groups.map((g, i) => <div key={i}><i style={{ background: g.color }} /><span>{g.name}</span><b>{formatTime(g.seconds)} · {(g.seconds / total * 100).toFixed(1)}%</b></div>)}</div></div> : <p className="empty">暂无成功识别记录</p>}<div className="ornament">❋ <small>SMALL MOMENTS, YOUR DAY.</small></div></section>
+    <CategoryDistribution records={records} variant="home" onViewHistory={viewHistory} />
     <section className="panel recent-panel"><div className="section-head"><h2>刚刚留下的片段</h2><button onClick={review}>回顾今天 ↗</button></div>{records.slice(-3).reverse().map(r => <div className="recent-record" key={r.id}><time>{clock(r.utc)}</time><span className="category-label" style={{ borderColor: r.category.color }}>{r.category.name}</span><p>{r.description}</p></div>)}{!records.length && <p>今天还没有活动记录。</p>}</section>
   </div>;
 }

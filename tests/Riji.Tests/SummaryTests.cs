@@ -41,6 +41,38 @@ public sealed class SummaryTests
     }
     private static SummaryRange Range(int start = 0, int end = 60) => new(Epoch.AddMinutes(start), Epoch.AddMinutes(end), TimeZoneInfo.Utc.Id);
 
+    [Fact]
+    // Persist diagnostic evidence for failed summary and chat calls without saving partial output as success.
+    public async Task FailedTextCallsWriteAssociatedLocalReports()
+    {
+        using var fixture = new Fixture(); fixture.Add(1);
+        var diagnostics = new DiagnosticLog(fixture.Folder);
+        var service = new SummaryService(fixture.Store, new(new HttpClient(fixture.Http)),
+            () => (fixture.Config, "secret-not-exported"), diagnostics);
+        var successful = await service.Generate(Range(), "summarize");
+        fixture.Http.Respond = (_, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+        { Content = new StringContent("data: {\"choices\":[{\"delta\":{\"content\":\"partial secret-not-exported\",\"reasoning\":\"thinking\"},\"finish_reason\":null}]}\n\n", Encoding.UTF8, "text/event-stream") });
+        var failed = await service.Generate(Range(), "summarize", hourly: true, automatic: false);
+        await service.Chat(successful, "question");
+        var summary = fixture.Store.Summary(failed);
+        Assert.Equal(GenerationState.Failed, summary.State);
+        Assert.Null(summary.Text);
+        Assert.Null(Assert.Single(summary.Calls!).Result);
+        var turn = Assert.Single(fixture.Store.Summary(successful).Conversation!);
+        Assert.Equal(GenerationState.Failed, turn.State);
+        Assert.Null(turn.Reply);
+        var reports = Directory.GetFiles(diagnostics.DirectoryPath, "text-failure-*.html").Select(File.ReadAllText).ToArray();
+        Assert.Equal(2, reports.Length);
+        Assert.Contains(reports, html => html.Contains(failed) && html.Contains("0:0"));
+        Assert.Contains(reports, html => html.Contains(successful) && html.Contains("chat:" + turn.Id));
+        foreach (var html in reports)
+        {
+            Assert.Contains("partial", html);
+            Assert.Contains("thinking", html);
+            Assert.DoesNotContain("secret-not-exported", html);
+        }
+    }
+
     [Fact] public async Task HourlyPromptKeepsIntermediateDetailsAndAppliesStyleOnlyAtFinalStage()
     {
         using var fixture = new Fixture();

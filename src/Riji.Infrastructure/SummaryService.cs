@@ -10,6 +10,7 @@ public sealed class SummaryService
 {
     private readonly LocalStore store;
     private readonly HttpAiClient client;
+    private readonly DiagnosticLog? diagnostics;
     private readonly Func<(AiConfiguration Configuration, string Key)> configuration;
     private readonly TextRequestScheduler scheduler = new();
     private readonly object gate = new();
@@ -21,9 +22,10 @@ public sealed class SummaryService
     private static readonly JsonSerializerOptions PromptJson = new() { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
     public bool Busy { get { lock (gate) return active.Count != 0; } }
 
-    public SummaryService(LocalStore store, HttpAiClient client, Func<(AiConfiguration, string)> configuration)
+    // Restore queued work and optionally record bounded response evidence for failed text requests.
+    public SummaryService(LocalStore store, HttpAiClient client, Func<(AiConfiguration, string)> configuration, DiagnosticLog? diagnostics = null)
     {
-        this.store = store; this.client = client; this.configuration = configuration;
+        this.store = store; this.client = client; this.configuration = configuration; this.diagnostics = diagnostics;
         foreach (var summary in store.Summaries())
         {
             var conversation = (summary.Conversation ?? []).Select(turn => turn.State == GenerationState.Running
@@ -254,7 +256,7 @@ public sealed class SummaryService
                 }
                 if (call.Result is not null) return call.Result;
                 var result = await scheduler.Run(summary.Id, summary.Hourly && summary.Automatic,
-                    token => client.Text(config, key, prompt, token), cancellation.Token);
+                    token => RequestText(summary.Id, callId, config, key, prompt, token), cancellation.Token);
                 cancellation.Token.ThrowIfCancellationRequested();
                 lock (gate)
                 {
@@ -271,6 +273,17 @@ public sealed class SummaryService
             try { Save(summary); } catch (Exception saveError) when (StorageFailure(saveError)) { }
         }
         finally { lock (gate) active.Remove(summary.Id); }
+    }
+
+    // Associate each failed provider call with its summary or chat turn before retry policy runs.
+    private async Task<string> RequestText(string summaryId, string callId, AiConfiguration config, string key, string prompt, CancellationToken cancellation)
+    {
+        try { return await client.Text(config, key, prompt, cancellation); }
+        catch (AiFailure failure)
+        {
+            diagnostics?.TextFailure(summaryId, callId, failure, config, key);
+            throw;
+        }
     }
 
     private static SummaryDocument Failed(SummaryDocument summary, Exception error, bool cancelled)
@@ -322,7 +335,7 @@ public sealed class SummaryService
             Save(summary);
             if (Encoding.UTF8.GetByteCount(prompt) + 512 > config.InputBudget) throw new AiFailure("本篇对话超过输入预算，问题已保存，未截断上下文发送。");
             var response = await scheduler.Run(summaryId, false,
-                token => client.Text(config, key, prompt, token), cancellation.Token); cancellation.Token.ThrowIfCancellationRequested();
+                token => RequestText(summaryId, "chat:" + turn.Id, config, key, prompt, token), cancellation.Token); cancellation.Token.ThrowIfCancellationRequested();
             turn = turn with { State = GenerationState.Succeeded, Reply = response };
         }
         catch (Exception error)

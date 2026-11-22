@@ -6,7 +6,7 @@ namespace Riji.Infrastructure;
 
 public enum DiagnosticEvent { Startup, WebViewStartup, StorageCommit, Command, Snapshot, MaintenanceRecovery }
 // General diagnostics omit content; recognition failure reports retain the evidence needed for local debugging.
-public sealed class DiagnosticLog(string dataDirectory, int maxBytes = 262144, int retainedFiles = 4)
+public sealed partial class DiagnosticLog(string dataDirectory, int maxBytes = 262144, int retainedFiles = 4)
 {
     private readonly object gate = new();
     private readonly Dictionary<DiagnosticEvent, long> last = [];

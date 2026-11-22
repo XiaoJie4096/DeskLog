@@ -192,12 +192,13 @@ public sealed class MainWindow : Window
         return raw with { Website = evidence, MediaActivitySeconds = media };
     }
 
+    // Share the local diagnostic log with recognition and text task services.
     private void InitializePipelines()
     {
         recognition = new(store, new HttpAiClient(aiHttp), dataDir, ScreenCapture.SavePng,
             () => !maintenance && !exiting && tracker.Settings.AutoRecord && tracker.State.Mode is RecordingMode.Default or RecordingMode.Locked && !observer.Capture().SystemBlocked,
             SecretVault.Protect, SecretVault.Unprotect, Capture);
-        summaries = new(store, new HttpAiClient(aiHttp), () => (recognition.Configuration ?? throw new InvalidOperationException("请先在设置中验证 AI 配置。"), recognition.ActiveKey()));
+        summaries = new(store, new HttpAiClient(aiHttp), () => (recognition.Configuration ?? throw new InvalidOperationException("请先在设置中验证 AI 配置。"), recognition.ActiveKey()), diagnosticLog);
         hourlySummaries = new(store, summaries, TimeZoneInfo.Local, DateTimeOffset.UtcNow, () => !maintenance && !exiting && !offlineReview && profile != "Test" && recognition.Configuration is not null);
     }
 
@@ -275,6 +276,9 @@ public sealed class MainWindow : Window
                 case "recognitionJobs": value = store.UnfinishedJobs(root.GetProperty("offset").GetInt32()); break;
                 case "openRecognitionLog":
                     System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(diagnosticLog.RecognitionFailureIndex()) { UseShellExecute = true });
+                    break;
+                case "openTextLog":
+                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(diagnosticLog.TextFailureIndex()) { UseShellExecute = true });
                     break;
                 case "testAi":
                     var submittedKey = root.TryGetProperty("key", out var keyElement) ? keyElement.GetString() : null;

@@ -94,28 +94,34 @@ public sealed class HttpAiClient(HttpClient client)
             throw new AiFailure($"AI 服务返回 HTTP {status}。", status is 408 or 429 || status >= 500, diagnosticResponse: await ReadDiagnosticBody(response.Content, cancellation));
     }
 
-    private static async Task<byte[]> ReadLimited(Stream stream, CancellationToken cancellation, Action? onData = null)
+    // Keep recognition limits unchanged and apply the separate text transport budget when supplied.
+    private static async Task<byte[]> ReadLimited(Stream stream, CancellationToken cancellation, Action? onData = null, TextResponseCapture? capture = null)
     {
         using var buffer = new MemoryStream(); var chunk = new byte[8192]; int read;
         while ((read = await stream.ReadAsync(chunk, cancellation)) > 0)
         {
-            if (buffer.Length + read > 2_000_000) throw new AiFailure("AI 响应超过大小限制。");
+            capture?.Receive(chunk.AsSpan(0, read));
+            if (capture is null && buffer.Length + read > 2_000_000) throw new AiFailure("AI 响应超过大小限制。");
             buffer.Write(chunk, 0, read); onData?.Invoke();
         }
         return buffer.ToArray();
     }
 
-    private static string ParseCompletion(byte[] responseBytes, string operation)
+    // Inspect decoded text budgets even when a provider answers a streaming request with JSON.
+    private static string ParseCompletion(byte[] responseBytes, string operation, TextResponseCapture? capture = null)
     {
         using var doc = JsonDocument.Parse(responseBytes);
         var choice = doc.RootElement.GetProperty("choices")[0];
         var finishReason = choice.GetProperty("finish_reason").GetString();
+        if (capture is not null) capture.FinishReason = finishReason;
+        var message = choice.GetProperty("message");
+        if (capture is not null) CaptureMessage(message, capture, null);
         if (finishReason != "stop")
         {
             var detail = string.IsNullOrWhiteSpace(finishReason) ? "未提供" : finishReason;
             throw new AiFailure($"AI 未正常完成本次{operation}（finish_reason={detail}），结果未保存。若为 length，通常表示输出长度受限；若为 content_filter，通常表示内容策略拦截。", finishReason == "length", diagnosticResponse: Encoding.UTF8.GetString(responseBytes));
         }
-        var content = choice.GetProperty("message").GetProperty("content").GetString();
+        var content = message.GetProperty("content").GetString();
         if (string.IsNullOrWhiteSpace(content)) throw new AiFailure("AI 返回空内容。", true);
         return content;
     }
@@ -146,6 +152,7 @@ public sealed class HttpAiClient(HttpClient client)
                 || description.Contains("不支持", StringComparison.Ordinal));
     }
 
+    // Preserve bounded failure evidence while keeping the established text timeout and fallback policy.
     private async Task<string> SendStreaming(AiConfiguration configuration, string key, object[] messages, CancellationToken cancellation)
     {
         using var request = CreateRequest(configuration, key, messages, streaming: true);
@@ -154,6 +161,8 @@ public sealed class HttpAiClient(HttpClient client)
         using var progress = CancellationTokenSource.CreateLinkedTokenSource(total.Token);
         progress.CancelAfter(TimeSpan.FromMinutes(2));
         var receivedContent = false;
+        var capture = new TextResponseCapture();
+        // Only content or reasoning refreshes the established idle timeout.
         void OnContent() { receivedContent = true; progress.CancelAfter(TimeSpan.FromSeconds(60)); }
         try
         {
@@ -161,35 +170,49 @@ public sealed class HttpAiClient(HttpClient client)
             if ((int)response.StatusCode is 400 or 422 or 501)
             {
                 var diagnostic = await ReadDiagnosticBody(response.Content, progress.Token);
-                if (StreamingUnsupported(diagnostic)) return await Send(configuration, key, messages, total.Token, TimeSpan.FromSeconds(120), "生成");
+                if (StreamingUnsupported(diagnostic)) return await Send(configuration, key, messages, total.Token, TimeSpan.FromSeconds(120), "生成", capture);
                 throw new AiFailure($"AI 服务返回 HTTP {(int)response.StatusCode}。", (int)response.StatusCode >= 500, diagnosticResponse: diagnostic);
             }
             await EnsureSuccess(response, progress.Token);
             await using var stream = await response.Content.ReadAsStreamAsync(progress.Token);
             string result;
             if (response.Content.Headers.ContentType?.MediaType?.Equals("text/event-stream", StringComparison.OrdinalIgnoreCase) == true)
-                result = await ReadEventStream(stream, OnContent, progress.Token);
-            else result = ParseCompletion(await ReadLimited(stream, progress.Token, OnContent), "生成");
+                result = await ReadEventStream(stream, OnContent, progress.Token, capture);
+            else result = ParseCompletion(await ReadLimited(stream, progress.Token, OnContent, capture), "生成", capture);
             progress.Token.ThrowIfCancellationRequested();
             return result;
         }
         catch (OperationCanceledException) when (!cancellation.IsCancellationRequested)
         {
             var reason = total.IsCancellationRequested ? "总计超过 5 分钟" : receivedContent ? "连续 60 秒未收到内容" : "2 分钟内未收到内容";
-            throw new AiFailure($"AI 文本请求超时：{reason}。", true, networkFailure: true);
+            throw new AiFailure($"AI 文本请求超时：{reason}。", true, diagnosticResponse: capture.Describe(), networkFailure: true);
         }
-        catch (HttpRequestException) { throw new AiFailure("无法连接 AI 服务。", true, networkFailure: true); }
+        catch (AiFailure error) { throw new AiFailure(error.Message, error.Retryable, error.Authorization, capture.Describe(error.DiagnosticResponse), error.NetworkFailure); }
+        catch (HttpRequestException) { throw new AiFailure("无法连接 AI 服务。", true, diagnosticResponse: capture.Describe(), networkFailure: true); }
+        catch (IOException) { throw new AiFailure("AI 服务连接在接收响应时中断。", true, diagnosticResponse: capture.Describe(), networkFailure: true); }
         catch (Exception e) when (e is JsonException or KeyNotFoundException or InvalidOperationException or IndexOutOfRangeException)
-        { throw new AiFailure("AI 服务返回了无效的流式响应。", true); }
+        { throw new AiFailure("AI 服务返回了无效的流式响应。", true, diagnosticResponse: capture.Describe()); }
     }
 
-    private static async Task<string> ReadEventStream(Stream stream, Action onContent, CancellationToken cancellation)
+    // Share content and reasoning accounting across SSE and JSON without combining their display text.
+    private static void CaptureMessage(JsonElement message, TextResponseCapture capture, Action? onContent)
+    {
+        if (message.TryGetProperty("content", out var content) && content.ValueKind == JsonValueKind.String && content.GetString() is { Length: > 0 } text)
+        { capture.Content(text); onContent?.Invoke(); }
+        foreach (var field in new[] { "reasoning_content", "reasoning" })
+            if (message.TryGetProperty(field, out var reasoning) && reasoning.ValueKind == JsonValueKind.String && reasoning.GetString() is { Length: > 0 } thought)
+            { capture.Reasoning(thought); onContent?.Invoke(); }
+    }
+
+    // Parse bounded SSE events and measure decoded text independently from wire framing.
+    private static async Task<string> ReadEventStream(Stream stream, Action onContent, CancellationToken cancellation, TextResponseCapture capture)
     {
         var output = new StringBuilder(); var data = new StringBuilder();
         using var lineBytes = new MemoryStream();
-        var chunk = new byte[8192]; long receivedBytes = 0;
+        var chunk = new byte[8192]; var eventBytes = 0;
         string? finishReason = null; var eventType = "";
 
+        // Never return unfinished partial output as a successful completion.
         string Completed()
         {
             if (finishReason != "stop")
@@ -203,10 +226,11 @@ public sealed class HttpAiClient(HttpClient client)
             return result;
         }
 
+        // Decode one event and retain its finish marker even when its text exceeds a budget.
         bool Dispatch()
         {
             if (data.Length == 0) return false;
-            var payload = data.ToString(); data.Clear();
+            var payload = data.ToString(); data.Clear(); eventBytes = 0; capture.Events++;
             if (eventType == "error") throw new AiFailure("AI 服务返回流式错误。", true, diagnosticResponse: payload);
             eventType = "";
             if (payload == "[DONE]") return true;
@@ -215,18 +239,17 @@ public sealed class HttpAiClient(HttpClient client)
             var choices = doc.RootElement.GetProperty("choices");
             if (choices.GetArrayLength() == 0) return false;
             var choice = choices[0];
+            if (choice.TryGetProperty("finish_reason", out var finish) && finish.ValueKind == JsonValueKind.String)
+                finishReason = capture.FinishReason = finish.GetString();
             if (choice.TryGetProperty("delta", out var delta) && delta.ValueKind == JsonValueKind.Object)
             {
-                if (delta.TryGetProperty("content", out var content) && content.ValueKind == JsonValueKind.String && content.GetString() is { Length: > 0 } text)
-                { output.Append(text); onContent(); }
-                if (delta.TryGetProperty("reasoning_content", out var reasoning) && reasoning.ValueKind == JsonValueKind.String && reasoning.GetString() is { Length: > 0 }) onContent();
-                if (delta.TryGetProperty("reasoning", out reasoning) && reasoning.ValueKind == JsonValueKind.String && reasoning.GetString() is { Length: > 0 }) onContent();
+                CaptureMessage(delta, capture, onContent);
+                if (delta.TryGetProperty("content", out var content) && content.ValueKind == JsonValueKind.String) output.Append(content.GetString());
             }
-            if (choice.TryGetProperty("finish_reason", out var finish) && finish.ValueKind == JsonValueKind.String)
-            { finishReason = finish.GetString(); return true; }
-            return false;
+            return finishReason is not null;
         }
 
+        // Bound multiline events as well as individual lines before JSON parsing.
         bool Line(string line)
         {
             line = line.TrimStart('\uFEFF');
@@ -234,6 +257,8 @@ public sealed class HttpAiClient(HttpClient client)
             if (line.StartsWith("event:", StringComparison.Ordinal)) eventType = line[6..].Trim();
             else if (line.StartsWith("data:", StringComparison.Ordinal))
             {
+                eventBytes += Encoding.UTF8.GetByteCount(line);
+                if (eventBytes > TextResponseCapture.EventLimit) throw new AiFailure("AI 单个流式事件超过 16 MB 大小限制。");
                 if (data.Length > 0) data.Append('\n');
                 data.Append(line.AsSpan(5).TrimStart(' '));
             }
@@ -243,11 +268,14 @@ public sealed class HttpAiClient(HttpClient client)
         int read;
         while ((read = await stream.ReadAsync(chunk, cancellation)) > 0)
         {
-            receivedBytes += read;
-            if (receivedBytes > 2_000_000) throw new AiFailure("AI 响应超过大小限制。");
+            capture.Receive(chunk.AsSpan(0, read));
             for (var index = 0; index < read; index++)
             {
-                if (chunk[index] != (byte)'\n') { lineBytes.WriteByte(chunk[index]); continue; }
+                if (chunk[index] != (byte)'\n')
+                {
+                    if (lineBytes.Length >= TextResponseCapture.EventLimit) throw new AiFailure("AI 单行流式数据超过 16 MB 大小限制。");
+                    lineBytes.WriteByte(chunk[index]); continue;
+                }
                 var line = Encoding.UTF8.GetString(lineBytes.GetBuffer(), 0, (int)lineBytes.Length).TrimEnd('\r');
                 lineBytes.SetLength(0);
                 if (Line(line)) return Completed();
@@ -258,8 +286,9 @@ public sealed class HttpAiClient(HttpClient client)
         return Completed();
     }
 
+    // Reuse text accounting during a non-streaming fallback while retaining recognition behavior.
     private async Task<string> Send(AiConfiguration configuration, string key, object[] messages, CancellationToken cancellation,
-        TimeSpan? requestTimeout = null, string operation = "识别")
+        TimeSpan? requestTimeout = null, string operation = "识别", TextResponseCapture? capture = null)
     {
         using var request = CreateRequest(configuration, key, messages, streaming: false);
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellation); timeout.CancelAfter(requestTimeout ?? TimeSpan.FromSeconds(90));
@@ -269,9 +298,9 @@ public sealed class HttpAiClient(HttpClient client)
             using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
             await EnsureSuccess(response, timeout.Token);
             await using var stream = await response.Content.ReadAsStreamAsync(timeout.Token);
-            var responseBytes = await ReadLimited(stream, timeout.Token);
+            var responseBytes = await ReadLimited(stream, timeout.Token, capture: capture);
             diagnosticResponse = Encoding.UTF8.GetString(responseBytes);
-            return ParseCompletion(responseBytes, operation);
+            return ParseCompletion(responseBytes, operation, capture);
         }
         catch (OperationCanceledException) when (!cancellation.IsCancellationRequested) { throw new AiFailure("AI 请求超时。", true, networkFailure: true); }
         catch (HttpRequestException) { throw new AiFailure("无法连接 AI 服务。", true, networkFailure: true); }
