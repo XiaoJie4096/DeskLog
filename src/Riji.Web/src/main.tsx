@@ -74,7 +74,7 @@ function App() {
   const shiftDay = (offset: number) => { const date = new Date(day + 'T12:00:00'); date.setDate(date.getDate() + offset); setDay(date.toLocaleDateString('sv-SE')); };
   const datePicker = <div className="date-picker"><button aria-label="前一天" onClick={() => shiftDay(-1)}>←</button><input aria-label="查看日期" type="date" value={day} max={state?.today ?? localDay()} onChange={e => e.target.value && setDay(e.target.value)} /><button aria-label="后一天" disabled={day >= (state?.today ?? localDay())} onClick={() => shiftDay(1)}>→</button><button onClick={() => setDay(state?.today ?? localDay())}>回到今天</button><span>{new Date(day + 'T12:00:00').toLocaleDateString('zh-CN', { month: 'long', day: 'numeric', weekday: 'long' })}{state?.settings.nightMode ? ` · ${String(state.settings.dayStartHour).padStart(2, '0')}:00 至次日 ${String(state.settings.dayStartHour).padStart(2, '0')}:00` : ''}</span></div>;
   return <div className="shell"><aside><a className="brand" href="#" onClick={e => { e.preventDefault(); setPage('home'); setDay(state?.today ?? localDay()); }}><DesignIcon name="sun" /><span>日迹<small>RIJI / PERSONAL</small></span></a><nav aria-label="主要页面">{pages.map(([id, name]) => <button key={id} className={page === id ? 'active' : ''} aria-current={page === id ? 'page' : undefined} onClick={() => { setPage(id); if (id === 'home') setDay(state?.today ?? localDay()); if (id === 'review' && page !== 'review') setReviewTab('timeline'); }}><DesignIcon name={id} />{name}</button>)}</nav><div className="sidebar-bottom"><button disabled={!state || busy} onClick={() => configure({ theme: state?.settings.theme === 'light' ? 'dark' : 'light' })}>☼　{state?.settings.theme === 'light' ? '浅色模式' : '深色模式'}　⇄</button><small>留住片段，回到自己。<br />{state?.profile === 'Production' ? '个人记录' : '开发版 · 独立数据'}</small></div></aside>
-    <main className={`${page}-page`}>
+    <main className={page === 'settings' ? 'settings-page' : page === 'review' ? 'review-page' : ''}>
       {state?.diagnosticLogFailed && <div role="alert" className="error">故障日志写入失败，请检查数据目录权限和磁盘空间。记录保存状态请同时查看“记录状态”。</div>}
       {error && <div role="alert" className="error">{error}<button aria-label="关闭错误" onClick={() => setError('')}>×</button></div>}
       {!state && <div className="notice">正在连接本地记录服务。只有连接桌面后台后才会显示真实统计。</div>}
@@ -84,7 +84,7 @@ function App() {
         <section className="health-compact"><button aria-expanded={healthOpen} onClick={() => setHealthOpen(!healthOpen)}>◉　记录状态 · {state?.recognition.busy ? '正在识别' : '运行详情'}　{healthOpen ? '收起' : '查看详情'}</button>{healthOpen && <p>{state?.health ?? '等待连接'}<small>应用计时与截图识别独立。截图开关及失败任务可在设置中管理。</small></p>}</section></>}
       {page === 'statistics' && <>{heading('时间，在应用之间流动。', '看清应用与常用网站分别用了多久。', 'APPLICATION USAGE')}{/* Keep the connection status beside the date controls. */}<div className="statistics-date">{datePicker}<button onClick={() => { setSettingsTab('browser'); setPage('settings'); }}>{state?.browserConnections ? '浏览器插件已连接' : '浏览器插件未连接'} ↗</button></div>{dayState && <ApplicationStatistics state={dayState} />}</>}
       {page === 'review' && <>
-        <header className="review-heading"><h1>回到这一天。</h1></header>
+        {heading('回到这一天。', '查看当天的活动片段和时间分布。', 'LOOK BACK')}
         {datePicker}
         <div className="review-tabs" role="tablist" aria-label="回顾视图" onKeyDown={navigateReviewTabs}>
           {reviewTabs.map(([tab, label]) => <button

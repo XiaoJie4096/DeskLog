@@ -77,27 +77,38 @@
 .hour-group .hour-records .recognition-timeline li{grid-template-columns:78px minmax(0,1fr)}
 @media(max-width:850px){.recent-record{grid-template-columns:78px auto}}
 
-.review-page {
-  padding-top: clamp(16px, 3vh, 28px);
-  container: review / inline-size;
+.review-page { padding-top: clamp(20px, 3vh, 26px); }
+.review-page > .heading { margin-bottom: 18px; }
+.review-page > .date-picker { margin-bottom: 14px; }
+.review-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 24px;
+  padding-bottom: 4px;
 }
-.review-heading { margin-bottom: 12px; }
-.review-heading h1 { margin: 0; font-size: clamp(22px, 2.5vw, 27px); }
-.review-page .date-picker {
-  gap: 6px 8px;
-  margin-bottom: 6px;
+.review-summary > div {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
 }
+.review-summary strong {
+  color: var(--accent);
+  font-size: 16px;
+  white-space: nowrap;
+}
+.review-timeline.history { margin-top: 14px; }
+
 .review-tabs {
   display: flex;
-  gap: 18px;
-  margin-bottom: 10px;
+  gap: 24px;
+  margin-bottom: 12px;
   border-bottom: 1px solid var(--line);
 }
 .review-tabs button {
   border: 0;
   border-bottom: 2px solid transparent;
   border-radius: 0;
-  padding: 6px 12px 8px;
+  padding: 8px 12px 12px;
   color: var(--muted);
 }
 .review-tabs button[aria-selected="true"] {
@@ -105,27 +116,11 @@
   color: var(--accent);
 }
 .review-tabs button:focus-visible { outline-offset: -3px; }
-.review-summary {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px 24px;
-  padding: 0 0 10px;
-  border-bottom: 1px solid var(--line);
-}
-.review-summary > div { display: flex; align-items: baseline; gap: 6px; }
-.review-summary strong { font-size: 16px; color: var(--accent); white-space: nowrap; }
-.review-timeline.history { margin-top: 10px; }
-.review-timeline > p { margin: 6px 0; }
-.review-distribution {
-  max-width: 522px;
-  padding: clamp(14px, 2.2cqw, 22px);
-}
 .review-distribution .distribution {
   display: grid;
-  grid-template-columns: minmax(150px, 196px) minmax(0, 252px);
+  grid-template-columns: clamp(148px, 24vw, 224px) minmax(0, 1fr);
   align-items: center;
-  gap: clamp(16px, 4cqw, 28px);
-  margin-top: 14px;
+  gap: clamp(24px, 5vw, 60px);
 }
 .review-distribution .pie {
   width: 100%;
@@ -148,18 +143,13 @@
 }
 .distribution-total strong { font-size: clamp(16px, 2.2vw, 24px); }
 .distribution-total small { font-size: 12px; }
-.review-distribution .legend { grid-template-columns: 1fr; gap: 0; font-size: 13px; }
-.review-distribution .legend li {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  gap: 8px;
-  padding: 8px 0;
-  border-bottom: 1px solid var(--line);
-}
+.review-distribution .legend { grid-template-columns: minmax(0, 1fr); max-width: 380px; gap: 0; font-size: 13px; }
+.review-distribution .legend li { gap: 10px; padding: 12px 0; border-bottom: 1px solid var(--line); }
 .review-distribution .legend li:last-child { border-bottom: 0; }
-.review-distribution .legend b { white-space: nowrap; font-variant-numeric: tabular-nums; }
-.review-distribution .sampling-caption { margin: 12px 0 0; }
-@container review (max-width: 400px) {
-  .review-distribution .distribution { grid-template-columns: minmax(0, 252px); justify-content: center; }
-  .review-distribution .pie { max-width: 152px; justify-self: center; }
+.review-distribution .legend b { flex-shrink: 0; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.review-distribution .sampling-caption { margin: 20px 0 0; }
+@media (max-width: 720px) {
+  .review-distribution .distribution { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  .review-distribution .pie { max-width: 180px; justify-self: center; }
+  .review-distribution .legend { justify-self: center; }
 }
